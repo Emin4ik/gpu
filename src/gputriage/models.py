@@ -19,6 +19,7 @@ class Observation:
     value: Any
     source: str = "unknown"
     entity: str | None = None
+    raw_ref: str | None = None
 
 
 @dataclass
