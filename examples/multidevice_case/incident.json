@@ -1,0 +1,24 @@
+{
+  "symptom": "localized NCCL slowdown on ranks 16-17",
+  "affected_entities": ["rank:16", "rank:17"],
+  "observations": [
+    {"key": "communication_regression_localized", "value": true, "source": "workload"},
+    {"key": "gpu_health_clean", "value": true, "source": "dcgm-summary"}
+  ],
+  "identity_graph": {
+    "entities": [
+      {"id": "rank:16", "kind": "rank"},
+      {"id": "rank:17", "kind": "rank"},
+      {"id": "gpu:GPU-a", "kind": "gpu"},
+      {"id": "gpu:GPU-b", "kind": "gpu"},
+      {"id": "pcie:0000:c1:00.0", "kind": "pcie_device"},
+      {"id": "pcie:0000:e1:00.0", "kind": "pcie_device"}
+    ],
+    "relations": [
+      {"source": "rank:16", "type": "uses_gpu", "target": "gpu:GPU-a"},
+      {"source": "rank:17", "type": "uses_gpu", "target": "gpu:GPU-a"},
+      {"source": "gpu:GPU-a", "type": "attached_via_pcie", "target": "pcie:0000:c1:00.0"},
+      {"source": "gpu:GPU-b", "type": "attached_via_pcie", "target": "pcie:0000:e1:00.0"}
+    ]
+  }
+}

@@ -1,0 +1,6 @@
+0000:c1:00.0 VGA compatible controller: NVIDIA Device
+    LnkCap: Port #0, Speed 32GT/s, Width x16
+    LnkSta: Speed 32GT/s, Width x8
+0000:e1:00.0 VGA compatible controller: NVIDIA Device
+    LnkCap: Port #0, Speed 32GT/s, Width x16
+    LnkSta: Speed 32GT/s, Width x4
