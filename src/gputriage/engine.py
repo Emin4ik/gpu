@@ -2,47 +2,54 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+from .evidence import EvidenceIndex
 from .models import DiagnosticTest, Hypothesis, HypothesisStatus, Investigation, Observation
 
 
-def _index(observations: Iterable[Observation]) -> dict[str, Observation]:
-    return {ob.key: ob for ob in observations}
+def _truth(facts: EvidenceIndex, key: str) -> bool:
+    return facts.any_true(key)
 
 
-def _truth(facts: dict[str, Observation], key: str) -> bool:
-    ob = facts.get(key)
-    return bool(ob and ob.value is True)
-
-
-def _value(facts: dict[str, Observation], key: str):
-    ob = facts.get(key)
-    return None if ob is None else ob.value
-
-
-def _pcie_hypothesis(facts: dict[str, Observation]) -> Hypothesis:
+def _pcie_hypothesis(facts: EvidenceIndex) -> Hypothesis:
     h = Hypothesis("pcie_path_degradation", "PCIe path degradation")
     if _truth(facts, "communication_regression_localized"):
         h.supporting_evidence.append("communication regression is localized")
     if _truth(facts, "affected_ranks_share_pcie_path"):
         h.supporting_evidence.append("affected ranks share a PCIe path")
-    width = _value(facts, "pcie_width")
-    expected = _value(facts, "pcie_expected_width")
-    if isinstance(width, int) and isinstance(expected, int):
-        if width < expected:
-            h.supporting_evidence.append(f"PCIe width is x{width}, expected x{expected}")
-            h.status = HypothesisStatus.PROBABLE
-        else:
-            h.contradicting_evidence.append("PCIe width matches expected value")
+
+    pairs = facts.pairs("pcie_width", "pcie_expected_width")
+    degraded: list[tuple[str | None, int, int]] = []
+    healthy: list[tuple[str | None, int, int]] = []
+    for entity, width_ob, expected_ob in pairs:
+        width, expected = width_ob.value, expected_ob.value
+        if isinstance(width, int) and isinstance(expected, int):
+            target = (entity, width, expected)
+            if width < expected:
+                degraded.append(target)
+            else:
+                healthy.append(target)
+
+    if degraded:
+        entity, width, expected = degraded[0]
+        label = f" on {entity}" if entity else ""
+        h.supporting_evidence.append(f"PCIe width is x{width}, expected x{expected}{label}")
+        if len(degraded) > 1:
+            h.supporting_evidence.append(f"{len(degraded)} affected-path PCIe devices are below expected width")
+        h.status = HypothesisStatus.PROBABLE
+    elif pairs and healthy:
+        h.contradicting_evidence.append("affected-path PCIe widths match expected values")
+
     if _truth(facts, "targeted_nccl_validation_failed") and h.status == HypothesisStatus.PROBABLE:
         h.status = HypothesisStatus.CONFIRMED
     elif len(h.supporting_evidence) >= 2 and h.status == HypothesisStatus.POSSIBLE:
         h.status = HypothesisStatus.SUPPORTED
-    if h.status in {HypothesisStatus.SUPPORTED, HypothesisStatus.PROBABLE} and (width is None or expected is None):
+
+    if h.status in {HypothesisStatus.SUPPORTED, HypothesisStatus.PROBABLE} and not pairs:
         h.missing_evidence.append("PCIe link width/speed for affected GPU/HCA path")
     return h
 
 
-def _fabric_hypothesis(facts: dict[str, Observation]) -> Hypothesis:
+def _fabric_hypothesis(facts: EvidenceIndex) -> Hypothesis:
     h = Hypothesis("fabric_link_degradation", "Fabric / HCA path degradation")
     if _truth(facts, "communication_regression_localized"):
         h.supporting_evidence.append("communication regression is localized")
@@ -64,7 +71,7 @@ def _fabric_hypothesis(facts: dict[str, Observation]) -> Hypothesis:
     return h
 
 
-def _gpu_hardware_hypothesis(facts: dict[str, Observation]) -> Hypothesis:
+def _gpu_hardware_hypothesis(facts: EvidenceIndex) -> Hypothesis:
     h = Hypothesis("gpu_hardware_degradation", "GPU hardware degradation")
     if _truth(facts, "gpu_xid_or_ecc_error"):
         h.supporting_evidence.append("GPU XID/ECC evidence is present")
@@ -75,7 +82,7 @@ def _gpu_hardware_hypothesis(facts: dict[str, Observation]) -> Hypothesis:
     return h
 
 
-def _thermal_hypothesis(facts: dict[str, Observation]) -> Hypothesis:
+def _thermal_hypothesis(facts: EvidenceIndex) -> Hypothesis:
     h = Hypothesis("gpu_thermal_frequency_degradation", "GPU thermal / frequency degradation")
     if _truth(facts, "compute_straggler_localized"):
         h.supporting_evidence.append("compute slowdown is localized to one GPU/rank")
@@ -95,7 +102,7 @@ def _thermal_hypothesis(facts: dict[str, Observation]) -> Hypothesis:
     return h
 
 
-def _software_hypothesis(facts: dict[str, Observation]) -> Hypothesis:
+def _software_hypothesis(facts: EvidenceIndex) -> Hypothesis:
     h = Hypothesis("software_config_regression", "Software / configuration regression")
     if _truth(facts, "regression_after_change"):
         h.supporting_evidence.append("regression started after a software/configuration change")
@@ -115,7 +122,7 @@ def _software_hypothesis(facts: dict[str, Observation]) -> Hypothesis:
     return h
 
 
-def _host_cpu_hypothesis(facts: dict[str, Observation]) -> Hypothesis:
+def _host_cpu_hypothesis(facts: EvidenceIndex) -> Hypothesis:
     h = Hypothesis("host_cpu_irq_interference", "Host CPU / IRQ interference")
     if _truth(facts, "communication_waits"):
         h.supporting_evidence.append("communication waits are visible")
@@ -133,7 +140,7 @@ def _host_cpu_hypothesis(facts: dict[str, Observation]) -> Hypothesis:
     return h
 
 
-def _storage_hypothesis(facts: dict[str, Observation]) -> Hypothesis:
+def _storage_hypothesis(facts: EvidenceIndex) -> Hypothesis:
     h = Hypothesis("storage_data_starvation", "Storage / data pipeline starvation")
     if _truth(facts, "gpu_wait_for_input"):
         h.supporting_evidence.append("GPU waits for input/data")
@@ -151,7 +158,7 @@ def _storage_hypothesis(facts: dict[str, Observation]) -> Hypothesis:
     return h
 
 
-def _collective_desync_hypothesis(facts: dict[str, Observation]) -> Hypothesis:
+def _collective_desync_hypothesis(facts: EvidenceIndex) -> Hypothesis:
     h = Hypothesis("collective_work_invariant_failure", "Distributed work / collective invariant failure")
     if _truth(facts, "collective_hang"):
         h.supporting_evidence.append("distributed job is hung in/around collectives")
@@ -173,7 +180,7 @@ def _test(id: str, title: str, purpose: str, command: str | None, cost: str, inv
     return DiagnosticTest(id=id, title=title, purpose=purpose, command=command, cost=cost, invasiveness=invasiveness, discriminates_between=tuple(hypotheses))
 
 
-def _choose_next_test(hypotheses: list[Hypothesis], facts: dict[str, Observation]) -> DiagnosticTest | None:
+def _choose_next_test(hypotheses: list[Hypothesis], facts: EvidenceIndex) -> DiagnosticTest | None:
     by_id = {h.id: h for h in hypotheses}
     pcie = by_id["pcie_path_degradation"]
     fabric = by_id["fabric_link_degradation"]
@@ -213,7 +220,7 @@ def _choose_next_test(hypotheses: list[Hypothesis], facts: dict[str, Observation
 
 
 def investigate(symptom: str, observations: Iterable[Observation]) -> Investigation:
-    facts = _index(observations)
+    facts = EvidenceIndex.from_iterable(observations)
     hypotheses = [
         _pcie_hypothesis(facts),
         _fabric_hypothesis(facts),
