@@ -7,16 +7,17 @@ GPU Triage is an early proof of concept for a troubleshooting layer that makes e
 > Don't replace your GPU tools. Make them work together.
 
 ```text
-raw artifacts
-    -> identity graph
-    -> entity-scoped evidence
-    -> hypotheses
-    -> missing evidence
-    -> next best test
-    -> confirmation or abstention
+raw artifacts / specialist tools
+        -> identity graph
+        -> entity-scoped evidence
+        -> hypotheses
+        -> eligible diagnostics
+        -> transparent test ranking
+        -> next best test or abstention
+        -> confirmation / rejection
 ```
 
-The engine uses qualitative states (`possible`, `supported`, `probable`, `confirmed`, `rejected`) instead of invented confidence percentages. A root cause only becomes `confirmed` when confirmation-grade evidence is supplied.
+The engine uses qualitative hypothesis states (`possible`, `supported`, `probable`, `confirmed`, `rejected`) instead of invented root-cause confidence percentages. A root cause only becomes `confirmed` when confirmation-grade evidence is supplied.
 
 ## What is implemented
 
@@ -26,19 +27,15 @@ The engine uses qualitative states (`possible`, `supported`, `probable`, `confir
 - rank -> node -> GPU UUID -> PCI BDF -> HCA/NIC mapping;
 - multi-device evidence storage without key collisions;
 - affected-path filtering so unrelated broken hardware cannot contaminate an investigation;
+- explicit diagnostic-test registry and deterministic next-test ranking;
+- selection explanations, expected outcome branches, and alternatives;
 - staged evaluation and explicit abstention.
 
-The full roadmap and exit criteria are in [`PLAN.md`](PLAN.md).
+The full roadmap and exit criteria are in [`PLAN.md`](PLAN.md). M0-M6 are implemented at PoC level; **M7 evidence adapters are next**.
 
 ## Automatic identity discovery
 
-Supported discovery artifacts include:
-
-- `slurm-job.txt`;
-- `rank-map.csv`;
-- `nvidia-gpus.csv`;
-- `ib-devices.csv`;
-- `nvidia-topo.txt`.
+Supported discovery artifacts include `slurm-job.txt`, `rank-map.csv`, `nvidia-gpus.csv`, `ib-devices.csv`, and `nvidia-topo.txt`.
 
 See [`docs/COLLECTING_IDENTITY.md`](docs/COLLECTING_IDENTITY.md).
 
@@ -51,11 +48,35 @@ pcie_width @ pcie:0000:c1:00.0 = 16
 pcie_width @ pcie:0000:e1:00.0 = 8
 ```
 
-GPU Triage pairs related facts only when the entity matches and removes device evidence outside the affected workload path before hypothesis evaluation.
-
-This prevents a classic false-correlation failure: a bad PCIe link elsewhere on the node cannot become the explanation for a job whose ranks never use that device.
+Related facts are paired only when their entities match. If the affected workload path is known, unrelated device evidence is removed before hypothesis evaluation.
 
 See [`docs/EVIDENCE_MODEL.md`](docs/EVIDENCE_MODEL.md).
+
+## Explicit next-test planning
+
+Playbooks decide which diagnostics are eligible. The planner then ranks those actions using transparent operational attributes:
+
+```text
+owner hypothesis state
++ diagnostic information value
++ number of active hypotheses separated
++ supporting evidence
+- cost
+- invasiveness
+- duration
+```
+
+This score ranks **diagnostic actions**, not root-cause probability.
+
+A selected action carries:
+
+- why it is useful;
+- cost / invasiveness / duration;
+- expected outcome branches;
+- why it beat the other eligible diagnostics;
+- top alternatives.
+
+For example, when PCIe and fabric are both supported but PCIe state is missing, a cheap read-only PCIe check can outrank fabric collection. If PCIe later becomes `probable`, the planner can switch to targeted NCCL validation for causal confirmation.
 
 ## Try it
 
@@ -66,8 +87,6 @@ gputriage examples/auto_identity_case
 gputriage examples/multidevice_case
 ```
 
-The multi-device example contains a degraded affected PCIe device plus another degraded but unrelated device. Only affected-path evidence is allowed into the diagnosis.
-
 ## Design rules
 
 - missing evidence does not make a hypothesis more likely;
@@ -77,8 +96,9 @@ The multi-device example contains a degraded affected PCIe device plus another d
 - every conclusion must be traceable to evidence;
 - ambiguous identity mappings are not guessed;
 - durable identifiers such as GPU UUID and PCI BDF are preferred over local indexes;
-- cheap/read-only tests are preferred before invasive diagnostics;
-- unsupported incident classes should produce abstention or handoff.
+- cheap/read-only diagnostics are preferred when they provide comparable information;
+- unsupported incident classes should produce abstention or handoff;
+- imported vendor-tool verdicts will be treated as evidence, not unquestioned truth.
 
 ## Scope boundary
 
@@ -97,4 +117,4 @@ GitHub Actions runs tests and replay sets on supported Python versions.
 
 ## Status
 
-Research / proof of concept. M0-M5 are implemented at PoC level. **M6 (explicit next-test selection) is next.** APIs, schemas, parsers, and playbooks will change.
+Research / proof of concept. APIs, schemas, adapters, and playbooks will change. **Next: M7, starting with DCGM and journal/dmesg evidence adapters.**
