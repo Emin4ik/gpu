@@ -141,6 +141,18 @@ def derive_identity_observations(graph: IdentityGraph, affected_entities: list[s
     return observations
 
 
+def _entity_on_gpu_path(entity: str | None, graph: IdentityGraph, affected_entities: list[str]) -> bool:
+    if not entity:
+        return False
+    if entity.startswith("gpu:"):
+        relevant = graph.common_targets(affected_entities, "gpu")
+        return not relevant or entity in relevant
+    if entity.startswith("pcie:"):
+        relevant = graph.common_gpu_pcie_targets(affected_entities)
+        return not relevant or entity in relevant
+    return False
+
+
 def observation_is_on_affected_path(observation: Observation, graph: IdentityGraph, affected_entities: list[str]) -> bool:
     if not affected_entities or not graph.entities:
         return True
@@ -154,9 +166,10 @@ def observation_is_on_affected_path(observation: Observation, graph: IdentityGra
             return False
         relevant = graph.common_targets(affected_entities, "nic_hca")
         return not relevant or observation.entity in relevant
-    if observation.key.startswith("gpu_") or observation.key == "thermal_throttle_reason":
-        if not observation.entity:
-            return False
-        relevant = graph.common_targets(affected_entities, "gpu")
-        return not relevant or observation.entity in relevant
+    if observation.key.startswith("gpu_") or observation.key == "thermal_throttle_reason" or observation.key.startswith("nvidia_xid"):
+        return _entity_on_gpu_path(observation.entity, graph, affected_entities)
+    if observation.key.startswith("dcgm_"):
+        if observation.entity is None:
+            return True
+        return _entity_on_gpu_path(observation.entity, graph, affected_entities)
     return True

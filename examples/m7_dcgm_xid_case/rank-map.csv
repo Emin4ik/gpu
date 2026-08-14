@@ -1,0 +1,2 @@
+rank,node,local_rank,cuda_visible_devices,affected
+0,gpu001,0,0,true

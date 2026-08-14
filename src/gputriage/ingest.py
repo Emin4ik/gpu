@@ -6,6 +6,8 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable
 
+from .adapter_utils import reconcile_adapter_entities
+from .adapters import parse_dcgm_json, parse_nvidia_system_log
 from .discovery import discover_identity, merge_graphs
 from .identity import IdentityGraph, derive_identity_observations, observation_is_on_affected_path
 from .models import Observation
@@ -110,7 +112,7 @@ def _auto_scope_entity(parser: Parser, graph: IdentityGraph, affected_entities: 
         common, kind = graph.common_gpu_pcie_targets(affected_entities), "GPU PCIe"
     elif parser is parse_ib_counters:
         common, kind = graph.common_targets(affected_entities, "nic_hca"), "HCA"
-    elif parser is parse_nvidia_smi_q:
+    elif parser is parse_nvidia_smi_q or parser is parse_dcgm_json:
         common, kind = graph.common_targets(affected_entities, "gpu"), "GPU"
     else:
         return None, None
@@ -161,11 +163,15 @@ def ingest_directory(root: Path) -> IngestResult:
         (("lspci.txt", "lspci-vv.txt"), ("lspci*.txt",), parse_lspci),
         (("nccl.log", "nccl.txt"), ("nccl*.log",), parse_nccl_log),
         (("ib-counters.txt", "ib_counters.txt", "ibqueryerrors.txt"), ("ib-counters*.txt", "ib_counters*.txt", "ibqueryerrors*.txt"), parse_ib_counters),
+        (("dcgm-diag.json", "dcgm_diag.json", "dcgm-health.json", "dcgm_health.json"), ("dcgm*.json",), parse_dcgm_json),
+        (("journal.log", "journal.txt", "dmesg.log", "dmesg.txt"), ("journal*.log", "journal*.txt", "dmesg*.log", "dmesg*.txt"), parse_nvidia_system_log),
     ]
     for exact_names, patterns, parser in parser_specs:
         for current_path in _find_artifacts(root, exact_names, patterns):
             entity = artifact_entities.get(current_path.name) or _infer_entity_from_filename(current_path, parser, graph)
             current_obs = parser(current_path.read_text(encoding="utf-8", errors="replace"), source=current_path.name)
+            current_obs, adapter_warnings = reconcile_adapter_entities(current_obs, graph, affected_entities)
+            warnings.extend(adapter_warnings)
             if not entity and not {ob.entity for ob in current_obs if ob.entity}:
                 entity, scope_warning = _auto_scope_entity(parser, graph, affected_entities)
                 if scope_warning:
@@ -180,6 +186,8 @@ def ingest_directory(root: Path) -> IngestResult:
                     baseline_key = f"baseline/{baseline_path.name}"
                     baseline_entity = artifact_entities.get(baseline_key, entity)
                     baseline_obs = parser(baseline_path.read_text(encoding="utf-8", errors="replace"), source=baseline_key)
+                    baseline_obs, baseline_adapter_warnings = reconcile_adapter_entities(baseline_obs, graph, affected_entities)
+                    warnings.extend(baseline_adapter_warnings)
                     baseline_obs = _attach_entity_if_missing(baseline_obs, baseline_entity)
                     artifact_observations.extend(_derive_baseline_facts(current_obs, baseline_obs))
                     parsed_files.append(baseline_key)
