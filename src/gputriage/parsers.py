@@ -19,11 +19,6 @@ def _first_int(patterns: Iterable[str], text: str) -> int | None:
 
 
 def parse_lspci(text: str, source: str = "lspci") -> list[Observation]:
-    """Extract PCIe link capability/state from `lspci -vv` text.
-
-    The parser intentionally does not infer that the parsed device is on the
-    affected job path. Identity/topology context must provide that separately.
-    """
     observations: list[Observation] = []
     expected_width = _first_int([r"LnkCap:.*?Width\s+x(\d+)"], text)
     current_width = _first_int([r"LnkSta:.*?Width\s+x(\d+)"], text)
@@ -43,7 +38,6 @@ def parse_lspci(text: str, source: str = "lspci") -> list[Observation]:
 
 
 def parse_nvidia_smi_q(text: str, source: str = "nvidia-smi-q") -> list[Observation]:
-    """Extract conservative clock/thermal/ECC facts from `nvidia-smi -q`."""
     observations: list[Observation] = []
     sm_clock = _first_int(
         [
@@ -96,11 +90,11 @@ _IB_ERROR_KEYS = {
 
 
 def _normalize_counter_name(name: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "_", name.strip().lower()).strip("_")
+    name = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", name.strip())
+    return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
 
 
 def parse_ib_counters(text: str, source: str = "ib-counters") -> list[Observation]:
-    """Parse common InfiniBand/RoCE counter dumps into normalized facts."""
     observations: list[Observation] = []
     total_errors = 0
     parsed = 0
@@ -123,7 +117,6 @@ def parse_ib_counters(text: str, source: str = "ib-counters") -> list[Observatio
 
 
 def parse_nccl_log(text: str, source: str = "nccl-log") -> list[Observation]:
-    """Extract transport/timeout facts from NCCL logs without inferring root cause."""
     observations: list[Observation] = []
     socket_transport = bool(
         re.search(r"NET/(?:Socket|Sockets)", text, re.IGNORECASE)
