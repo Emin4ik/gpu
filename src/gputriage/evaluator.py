@@ -18,27 +18,28 @@ class EvaluationFailure:
 
 
 @dataclass
-class EvaluationReport:
+class EvaluationCounters:
     cases: int = 0
     checked_stages: int = 0
     next_test_checks: int = 0
     next_test_hits: int = 0
+    abstention_checks: int = 0
+    abstention_hits: int = 0
     premature_confirmations: int = 0
     final_confirmation_checks: int = 0
     final_confirmation_hits: int = 0
-    failures: list[EvaluationFailure] = field(default_factory=list)
 
     @property
     def next_test_accuracy(self) -> float:
-        if not self.next_test_checks:
-            return 0.0
-        return self.next_test_hits / self.next_test_checks
+        return self.next_test_hits / self.next_test_checks if self.next_test_checks else 0.0
+
+    @property
+    def abstention_accuracy(self) -> float:
+        return self.abstention_hits / self.abstention_checks if self.abstention_checks else 0.0
 
     @property
     def final_confirmation_rate(self) -> float:
-        if not self.final_confirmation_checks:
-            return 0.0
-        return self.final_confirmation_hits / self.final_confirmation_checks
+        return self.final_confirmation_hits / self.final_confirmation_checks if self.final_confirmation_checks else 0.0
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -47,12 +48,26 @@ class EvaluationReport:
             "next_test_checks": self.next_test_checks,
             "next_test_hits": self.next_test_hits,
             "next_test_accuracy": self.next_test_accuracy,
+            "abstention_checks": self.abstention_checks,
+            "abstention_hits": self.abstention_hits,
+            "abstention_accuracy": self.abstention_accuracy,
             "premature_confirmations": self.premature_confirmations,
             "final_confirmation_checks": self.final_confirmation_checks,
             "final_confirmation_hits": self.final_confirmation_hits,
             "final_confirmation_rate": self.final_confirmation_rate,
-            "failures": [failure.__dict__ for failure in self.failures],
         }
+
+
+@dataclass
+class EvaluationReport(EvaluationCounters):
+    failures: list[EvaluationFailure] = field(default_factory=list)
+    by_split: dict[str, EvaluationCounters] = field(default_factory=dict)
+
+    def as_dict(self) -> dict[str, Any]:
+        payload = super().as_dict()
+        payload["by_split"] = {name: counters.as_dict() for name, counters in sorted(self.by_split.items())}
+        payload["failures"] = [failure.__dict__ for failure in self.failures]
+        return payload
 
 
 def _observations(items: list[dict[str, Any]]) -> list[Observation]:
@@ -63,26 +78,42 @@ def _by_id(result, hypothesis_id: str):
     return next((h for h in result.hypotheses if h.id == hypothesis_id), None)
 
 
+def _bump(report: EvaluationReport, split: EvaluationCounters, field_name: str, amount: int = 1) -> None:
+    setattr(report, field_name, getattr(report, field_name) + amount)
+    setattr(split, field_name, getattr(split, field_name) + amount)
+
+
 def evaluate_payload(payload: dict[str, Any]) -> EvaluationReport:
     report = EvaluationReport()
     for case in payload.get("cases", []):
-        report.cases += 1
+        split_name = case.get("split", "unspecified")
+        split = report.by_split.setdefault(split_name, EvaluationCounters())
+        _bump(report, split, "cases")
         accumulated: list[Observation] = []
         stages = case.get("stages", [])
+
         for index, stage in enumerate(stages):
             accumulated.extend(_observations(stage.get("add_observations", [])))
             result = investigate(case["symptom"], accumulated)
             stage_name = stage.get("name", f"stage-{index}")
-            report.checked_stages += 1
+            _bump(report, split, "checked_stages")
 
-            expected_test = stage.get("expected_next_test")
-            if expected_test:
-                report.next_test_checks += 1
-                actual = result.next_best_test.id if result.next_best_test else None
-                if actual == expected_test:
-                    report.next_test_hits += 1
+            if "expected_next_test" in stage:
+                expected_test = stage.get("expected_next_test")
+                if expected_test is None:
+                    _bump(report, split, "abstention_checks")
+                    if result.next_best_test is None and result.verdict is None:
+                        _bump(report, split, "abstention_hits")
+                    else:
+                        actual = result.next_best_test.id if result.next_best_test else None
+                        report.failures.append(EvaluationFailure(case["id"], stage_name, f"expected abstention, got next_test={actual!r}, verdict={result.verdict!r}"))
                 else:
-                    report.failures.append(EvaluationFailure(case["id"], stage_name, f"expected next test {expected_test!r}, got {actual!r}"))
+                    _bump(report, split, "next_test_checks")
+                    actual = result.next_best_test.id if result.next_best_test else None
+                    if actual == expected_test:
+                        _bump(report, split, "next_test_hits")
+                    else:
+                        report.failures.append(EvaluationFailure(case["id"], stage_name, f"expected next test {expected_test!r}, got {actual!r}"))
 
             for hypothesis_id, expected_status in stage.get("expected_statuses", {}).items():
                 hypothesis = _by_id(result, hypothesis_id)
@@ -93,16 +124,16 @@ def evaluate_payload(payload: dict[str, Any]) -> EvaluationReport:
             allow_confirmed = bool(stage.get("allow_confirmed", False))
             confirmed = [h.id for h in result.hypotheses if h.status == HypothesisStatus.CONFIRMED]
             if confirmed and not allow_confirmed:
-                report.premature_confirmations += 1
+                _bump(report, split, "premature_confirmations")
                 report.failures.append(EvaluationFailure(case["id"], stage_name, f"premature confirmed hypotheses: {confirmed}"))
 
         expected_final = case.get("expected_final_hypothesis")
         if expected_final and stages:
-            report.final_confirmation_checks += 1
+            _bump(report, split, "final_confirmation_checks")
             final_result = investigate(case["symptom"], accumulated)
             hypothesis = _by_id(final_result, expected_final)
             if hypothesis and hypothesis.status == HypothesisStatus.CONFIRMED:
-                report.final_confirmation_hits += 1
+                _bump(report, split, "final_confirmation_hits")
             else:
                 actual = hypothesis.status.value if hypothesis else None
                 report.failures.append(EvaluationFailure(case["id"], stages[-1].get("name", "final"), f"final {expected_final} is {actual!r}"))
