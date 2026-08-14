@@ -1,0 +1,30 @@
+{
+  "symptom": "localized NCCL slowdown on ranks 16-17",
+  "observations": [
+    {"key": "communication_regression_localized", "value": true, "source": "job-context"},
+    {"key": "gpu_health_clean", "value": true, "source": "job-context"}
+  ],
+  "affected_entities": ["rank:16", "rank:17"],
+  "artifact_entities": {
+    "lspci.txt": "pcie:0000:c1:00.0"
+  },
+  "identity_graph": {
+    "entities": [
+      {"id": "rank:16", "kind": "rank", "attributes": {"global_rank": 16}},
+      {"id": "rank:17", "kind": "rank", "attributes": {"global_rank": 17}},
+      {"id": "node:gpu201", "kind": "node", "attributes": {"hostname": "gpu201"}},
+      {"id": "gpu:GPU-demo", "kind": "gpu", "attributes": {"uuid": "GPU-demo"}},
+      {"id": "pcie:0000:c1:00.0", "kind": "pcie_device", "attributes": {"bdf": "0000:c1:00.0"}},
+      {"id": "hca:mlx5_4", "kind": "nic_hca", "attributes": {"device": "mlx5_4"}}
+    ],
+    "relations": [
+      {"source": "rank:16", "type": "runs_on", "target": "node:gpu201"},
+      {"source": "rank:17", "type": "runs_on", "target": "node:gpu201"},
+      {"source": "rank:16", "type": "uses_gpu", "target": "gpu:GPU-demo"},
+      {"source": "rank:17", "type": "uses_gpu", "target": "gpu:GPU-demo"},
+      {"source": "gpu:GPU-demo", "type": "attached_via_pcie", "target": "pcie:0000:c1:00.0"},
+      {"source": "rank:16", "type": "uses_nic_hca", "target": "hca:mlx5_4"},
+      {"source": "rank:17", "type": "uses_nic_hca", "target": "hca:mlx5_4"}
+    ]
+  }
+}
