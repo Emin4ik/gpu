@@ -55,9 +55,9 @@ Implemented a `DiagnosticTestSpec` registry with explicit eligibility, cost, inv
 
 Important boundary: scoring ranks **diagnostic actions**, not root-cause confidence.
 
-### M7 - Evidence adapters: IN PROGRESS
+### M7 - Cross-tool evidence adapters: DONE (v0.1)
 
-Goal: consume strong specialist tools as evidence providers instead of reimplementing them.
+Goal achieved: specialist/vendor and host-OS artifacts now feed the same identity-scoped evidence model without being promoted directly to root-cause verdicts.
 
 #### M7 P0 - DCGM + NVIDIA system logs: DONE
 
@@ -74,86 +74,118 @@ Implemented:
 - conservative normalized facts for fallen-off-bus, memory/ECC-related, and NVLink-related events;
 - SXID preservation for future NVSwitch topology support;
 - affected-path filtering so an XID/DCGM finding on an unrelated GPU does not influence this incident;
-- end-to-end `examples/m7_dcgm_xid_case/`;
-- regression coverage for DCGM execution-vs-hardware semantics and adapter identity safety.
+- end-to-end `examples/m7_dcgm_xid_case/`.
 
 See [`docs/ADAPTERS.md`](docs/ADAPTERS.md).
 
-Exit criteria achieved for P0:
+#### M7 P1 - Host IRQ / CPU affinity evidence: DONE
 
-- structured vendor diagnostics and host event history feed the same evidence model;
-- imported evidence preserves source/entity/raw provenance;
-- vendor failures are not silently promoted to `confirmed` root causes;
-- unresolved local GPU indexes do not bypass identity scoping.
+Implemented:
 
-#### M7 P1 - Host IRQ / CPU affinity evidence: NEXT
+- `/proc/interrupts` parser with per-IRQ/per-CPU activity and raw line provenance;
+- IRQ affinity artifact with configured and effective CPU sets;
+- process/rank CPU-affinity artifact for communication roles;
+- HCA/netdev/PCI identity attached to IRQ affinity;
+- correlation only for active IRQs that map to an HCA/NIC on the affected rank path;
+- effective IRQ CPU affinity preferred when available, falling back to configured affinity;
+- derived `irq_shares_nccl_cpu` only when active IRQ + affected HCA + affected-rank communication CPU affinity are all known;
+- `irq_affinity_clean` when comparable CPU sets are known and do not overlap;
+- explicit evidence-gap warnings instead of guessed overlap when process/HCA/activity identity is missing;
+- existing `host_cpu_irq_interference` playbook moves to `probable` from raw host artifacts;
+- planner then selects `short_cpu_profile` as the causal confirmation step;
+- collection helpers `scripts/capture_irq_affinity.sh` and `scripts/capture_process_affinity.sh`;
+- end-to-end `examples/m7_irq_affinity_case/`.
 
-Goal: give the existing `host_cpu_irq_interference` playbook real host artifacts instead of manually normalized facts.
+See [`docs/HOST_AFFINITY.md`](docs/HOST_AFFINITY.md).
+
+M7 v0.1 completion gate:
+
+- GPU/vendor diagnostics, host event history, host IRQ/CPU evidence, and existing communication/fabric artifacts share one observation model;
+- evidence keeps source/entity/raw provenance;
+- mixed-source evidence changes planner state without bypassing confirmation rules;
+- ambiguous identity links remain warnings/evidence gaps;
+- imported tool findings are evidence, never unquestioned `confirmed` verdicts;
+- full Python 3.10/3.12 CI plus staged/holdout replay remains green.
+
+Deferred until after the benchmark unless a concrete case requires them:
+
+- GPUd findings/output;
+- NCCL Doctor findings;
+- NVIDIA AICR snapshot/diff;
+- richer NVLink/NVSwitch/Fabric Manager topology;
+- UFM/NetQ exports;
+- storage/data-loader specialist adapters.
+
+Reason for deferral: M8 should now prove that the diagnostic-planning layer adds value before adapter breadth grows further.
+
+## Next work
+
+### M8 - Frozen blind benchmark: NEXT
+
+Goal: decide objectively whether GPU Triage deserves continued development before adding more integrations or UI.
 
 Build:
 
-1. `/proc/interrupts` parser;
-2. IRQ affinity parser (`/proc/irq/*/smp_affinity_list` or collected equivalent);
-3. process/thread CPU affinity artifact (`taskset -pc`, launcher/NCCL thread metadata where available);
-4. NIC/netdev -> IRQ -> CPU mapping through HCA/netdev identity;
-5. normalized facts such as `nic_irq_cpus`, `process_allowed_cpus`, and a derived `irq_shares_nccl_cpu` observation only when both sides are known;
-6. raw references and explicit ambiguity warnings;
-7. end-to-end fixture with one conflicting and one clean affinity layout.
+1. grow the incident corpus to at least 25-30 high-quality cases with source links and quality grades;
+2. classify each case as confirmed root cause, strong causal evidence, or unresolved/symptom-only;
+3. freeze a holdout set **before** tuning additional playbooks;
+4. preserve staged evidence (`T0 symptom -> T1 cheap evidence -> T2 selected diagnostic -> T3 confirmation`) so future facts stay hidden;
+5. include unsupported cases where correct behavior is abstention;
+6. include misleading alerts, wrong-device evidence, ambiguous identities, and multi-cause incidents;
+7. record which existing specialist tool already closes each case so GPU Triage is not rewarded for duplicate functionality.
 
-Exit criteria:
+Primary metrics:
 
-- engine can move host IRQ hypothesis from `supported` to `probable` using raw host artifacts;
-- CPU/IRQ evidence is tied to the affected NIC/node, not just any interrupt on the host;
-- missing process-thread identity results in an evidence gap rather than a guessed overlap.
-
-#### M7 P2 - Specialist tool imports
-
-After P1, add only adapters that materially reduce manual tool transitions:
-
-- GPUd findings/output;
-- NCCL Doctor evidence/findings;
-- NVIDIA AICR snapshot/diff;
-- selected NVLink/NVSwitch/Fabric Manager evidence;
-- UFM/NetQ exported evidence where available;
-- simple storage/data-loader evidence.
-
-Principle: consume specialist conclusions as **evidence**, never as unquestioned truth.
-
-M7 completion gate:
-
-- at least three distinct evidence domains feed the shared model (GPU/vendor diagnostic, host OS, and communication/fabric or config);
-- mixed-source evidence changes planner decisions in deterministic tests;
-- adapter maintenance remains smaller than diagnostic-knowledge development.
-
-### M8 - Frozen blind benchmark
-
-Grow the incident corpus to at least 25-30 high-quality cases and freeze a meaningful holdout before tuning more playbooks.
-
-Measure:
-
-- true-domain coverage among supported hypotheses;
+- true root-cause domain among supported/top hypotheses;
 - next-test utility;
 - premature confirmation rate;
 - correct abstention rate;
 - diagnostic-action reduction;
-- unnecessary tool transitions.
+- unnecessary tool-transition reduction;
+- identity-scoping error rate;
+- duplicate-value rate versus DCGM/GPUd/NCCL Doctor/etc.
 
 Project gate:
 
 - near-zero premature `confirmed` verdicts;
 - useful next test on at least 70% of supported held-out cases;
-- meaningful reduction in manual diagnostic actions;
-- clear value beyond restating DCGM/GPUd/NCCL output.
+- correct abstention on unsupported cases;
+- meaningful reduction in manual diagnostic actions/tool transitions;
+- clear value beyond restating specialist-tool output.
 
-Rethink the project if identity mapping is too unreliable, adapter maintenance dominates diagnostic knowledge, most recommendations duplicate existing tools, or confident false root-cause claims become common.
+Rethink or kill the project if:
+
+- most recommendations duplicate existing tools with little workflow reduction;
+- identity mapping is too unreliable for causal correlation;
+- adapter maintenance dominates diagnostic-knowledge development;
+- useful diagnosis requires an always-on profiler for most incidents;
+- confident false root-cause claims appear regularly.
 
 ### M9 - CLI alpha
 
-After the benchmark gate passes: stable incident format, `gputriage investigate <dir>`, JSON + terminal reports, evidence references, missing-evidence section, next-test command template, and sanitized incident bundle export.
+Only after the M8 gate passes:
+
+- stable incident directory format;
+- `gputriage investigate <dir>`;
+- machine-readable JSON report;
+- human-readable terminal report;
+- evidence references for every supported conclusion;
+- explicit missing-evidence section;
+- next-best-test command template;
+- sanitized incident bundle export.
 
 ### M10 - Public alpha and integrations
 
-Then consider Slurm prolog/epilog helpers, Kubernetes identity adapter, adapter/plugin SDK, optional HTML report, versioned schemas, public incident examples, and the first public alpha release.
+Then consider:
+
+- Slurm prolog/epilog collection helpers;
+- Kubernetes identity adapter;
+- adapter/plugin SDK;
+- optional HTML report;
+- versioned schemas;
+- public example incident library;
+- deferred GPUd/NCCL Doctor/AICR adapters where benchmark gaps justify them;
+- first public alpha release.
 
 Later, only if users demand it: live SSH collection, historical incident DB, fleet baselines, MCP exposure, LLM explanation layer, web UI, notifications, enterprise integrations, and safe remediation suggestions.
 
@@ -193,27 +225,10 @@ job -> rank -> node -> GPU -> PCIe -> HCA/fabric
 
 ## Immediate checkpoint
 
-M7 P1: turn host IRQ / CPU-affinity state into entity-scoped evidence.
+M8: freeze a real blind benchmark before expanding the product surface.
 
-Target flow:
+The important question is no longer “can we parse another tool?” It is:
 
-```text
-localized communication wait
-        +
-GPU kernels match peers
-        +
-HCA/netdev identity
-        +
-/proc/interrupts
-        +
-IRQ affinity
-        +
-NCCL/process CPU affinity
-        ↓
-Does NIC interrupt processing overlap the communication CPU?
-        ↓
-YES -> host CPU/IRQ hypothesis becomes probable
-NO  -> weaken that path and let planner prefer fabric/other diagnostics
-```
+> Given only the evidence an operator actually had at each stage, does GPU Triage choose a useful next diagnostic and avoid premature conclusions?
 
-This checkpoint is more valuable than adding another generic health collector because it closes a real cross-layer gap already represented in the incident corpus.
+If the answer is yes on held-out real incidents, the project earns a CLI/public-alpha phase. If not, we should fix or stop the diagnostic model rather than hide the problem behind more adapters.
