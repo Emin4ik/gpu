@@ -25,127 +25,112 @@ Early versions will not become another monitoring daemon, Prometheus/Grafana sta
 
 ### M0 - Problem validation: DONE
 
-Completed competitive research and a corpus of real cross-layer GPU infrastructure incidents. The differentiated wedge is diagnostic planning across existing tools, not another health scanner.
+Competitive research and a corpus of real cross-layer GPU infrastructure incidents established the wedge: diagnostic planning across existing tools, not another health scanner.
 
-### M1 - Deterministic planner: DONE
+### M1 - Deterministic diagnosis core: DONE
 
-Implemented:
-
-- observation -> hypothesis -> missing evidence -> next-test loop;
-- qualitative states: `possible`, `supported`, `probable`, `confirmed`, `rejected`;
-- explicit abstention;
-- confirmation only after causal-grade evidence;
-- staged development replay and structural holdout smoke cases.
+Implemented observation -> hypothesis -> missing evidence -> next-test flow, qualitative hypothesis states, explicit abstention, causal confirmation rules, staged replay, and a structural holdout smoke set.
 
 ### M2 - Raw artifact ingestion: DONE
 
-Implemented parsers/adapters for:
-
-- `lspci -vv`;
-- `nvidia-smi -q`;
-- NCCL logs;
-- IB/RoCE counters;
-- optional baseline artifacts.
-
-Parsers extract facts but do not declare causality.
+Implemented `lspci -vv`, `nvidia-smi -q`, NCCL log, IB/RoCE counter, directory ingest, and baseline support. Parsers extract facts but do not declare causality.
 
 ### M3 - Identity graph: DONE
 
-Implemented:
-
-- rank/node/GPU/PCIe/HCA entities and relations;
-- affected-path traversal;
-- artifact-to-entity scoping;
-- rejection of unrelated hardware evidence;
-- explicit unresolved/ambiguous identity warnings.
+Implemented rank/node/GPU/PCIe/HCA entities and relations, affected-path traversal, artifact scoping, rejection of unrelated hardware evidence, and explicit unresolved/ambiguous identity warnings.
 
 ### M4 - Automatic identity discovery: DONE (v0.1)
 
-Implemented:
+Implemented Slurm allocation parsing, runtime `rank-map.csv`, NVIDIA GPU UUID/index/PCI BDF inventory, GPU reconciliation, HCA identity, conservative GPU/NIC topology reconciliation, collection helper scripts, and `examples/auto_identity_case/`.
 
-- `slurm-job.txt` allocation parsing;
-- Slurm hostlist expansion;
-- runtime `rank-map.csv` capture;
-- `nvidia-gpus.csv` UUID/index/PCI BDF inventory;
-- GPU mapping through UUID, index, or `CUDA_VISIBLE_DEVICES` + local rank;
-- `ib-devices.csv` identity;
-- conservative NVIDIA GPU/NIC topology reconciliation;
-- `scripts/capture_rank_map.sh`;
-- end-to-end `examples/auto_identity_case/`.
-
-Known limitations: rank mapping still requires runtime capture, topology formats need more real fixtures, and current collection examples are node-local rather than a full multi-node collector.
+Known limitations: rank mapping still requires runtime capture, topology formats need more real fixtures, and current examples are node-local rather than a complete multi-node collector.
 
 ### M5 - Multi-device evidence model: DONE (v0.1)
 
 Implemented:
 
 - multi-value evidence index instead of flat `key -> value` state;
-- same-key observations preserved for different GPUs/PCIe devices/HCAs;
-- PCIe current/expected facts paired only on the same entity;
-- full multi-device `lspci -vv` parsing with BDF-scoped observations;
-- multi-GPU `nvidia-smi -q` parsing with UUID-scoped observations;
+- same-key observations preserved for different entities;
+- PCIe current/expected facts paired only on the same device;
+- full multi-device `lspci -vv` parsing;
+- multi-GPU `nvidia-smi -q` parsing;
 - multiple per-HCA counter artifacts;
 - entity-aware baseline comparison;
-- `Observation.raw_ref` for artifact traceability;
-- affected-path filtering before hypothesis evaluation;
-- regression coverage proving that an unrelated degraded device cannot contaminate a diagnosis.
-
-Exit criteria achieved:
-
-- observations from different devices no longer overwrite one another;
-- unrelated degraded devices are excluded when identity is known;
-- facts from different devices cannot be accidentally combined into a false PCIe diagnosis.
+- `Observation.raw_ref` traceability;
+- affected-path filtering before diagnosis;
+- regressions proving unrelated degraded devices cannot contaminate a diagnosis.
 
 See [`docs/EVIDENCE_MODEL.md`](docs/EVIDENCE_MODEL.md).
 
+### M6 - Explicit diagnostic test planner: DONE (v0.1)
+
+Implemented:
+
+- `DiagnosticTestSpec` registry independent from hypothesis rules;
+- eligibility separated from ranking;
+- explicit cost, invasiveness, duration class, owner hypothesis, discriminated hypotheses, information value, and expected outcome branches;
+- deterministic candidate scoring;
+- preference for read-only/cheap tests when information value is comparable;
+- confirmation tests promoted as a hypothesis becomes `probable`;
+- selected test includes a human-readable selection reason and top alternatives;
+- unsupported incidents still abstain when no useful registered test exists;
+- regression coverage preserving staged and holdout diagnostic paths.
+
+Important boundary: scoring ranks **diagnostic actions**, not root-cause confidence. It does not turn hypotheses into probabilities.
+
+Exit criteria achieved:
+
+- planner can explain why a test was selected;
+- preferred action changes as evidence changes;
+- read-only tests beat disruptive alternatives when diagnostic value is otherwise equal;
+- old staged/holdout behavior remains green in CI.
+
 ## Next work
 
-### M6 - Planner v0.2: NEXT
+### M7 - Evidence adapters: NEXT
 
-Goal: replace hard-coded test ordering with an explicit diagnostic test registry and deterministic test selection.
+Goal: consume strong specialist tools as evidence providers instead of reimplementing them.
 
-Build:
+P0 adapters:
 
-- `DiagnosticTestSpec` registry;
-- test cost, invasiveness, prerequisites, and expected-duration class;
-- which hypotheses each test discriminates;
-- explicit outcome branches;
-- deterministic ranking of candidate tests;
-- preference for cheap/read-only tests when information value is similar;
-- correct abstention when no registered test can reduce uncertainty.
+1. **DCGM**
+   - health and diagnostic results;
+   - GPU UUID/entity mapping;
+   - XID/ECC/PCIe/NVLink-related findings where present;
+   - preserve raw test/result provenance.
+
+2. **Linux incident events**
+   - `journalctl` / `dmesg` NVIDIA XID/SXID events;
+   - timestamps and GPU/PCI identifiers when present;
+   - no assumption that an old XID caused the current incident without time/entity correlation.
+
+3. **GPUd**
+   - consume normalized component health/output;
+   - map component findings to GPU/HCA/node entities;
+   - do not duplicate GPUd collectors.
+
+4. **NCCL Doctor / NCCL evidence**
+   - import evidence-first diagnoses/findings where available;
+   - retain source evidence and treat imported verdicts as evidence, not unquestioned truth.
+
+5. **AICR snapshot/diff**
+   - import configuration/software drift;
+   - attach changes to node/software entities and incident timeline.
+
+Later M7 adapters: NVLink/NVSwitch/Fabric Manager, UFM/NetQ exports, `/proc/interrupts` and CPU affinity, and simple storage/data-loader evidence.
 
 Exit criteria:
 
-- planner explains why test A is preferred over test B;
-- preferred test changes correctly as new evidence arrives;
-- disruptive tests are not selected when a read-only alternative separates the same hypotheses.
-
-### M7 - Evidence adapters
-
-Consume existing specialist tools rather than reimplement them. Priority adapters:
-
-- DCGM health/diagnostic output;
-- GPUd output;
-- NCCL Doctor output;
-- NVIDIA AICR snapshot/diff;
-- NVLink/NVSwitch/Fabric Manager facts;
-- UFM/NetQ exported evidence where available;
-- `journalctl` / `dmesg` XID/SXID/kernel events;
-- `/proc/interrupts` and CPU affinity;
-- simple storage/data-loader evidence.
+- at least two external specialist tools feed the same evidence model;
+- imported evidence keeps source/entity/timestamp provenance;
+- planner can select a next action using mixed evidence from multiple adapters;
+- adapters do not silently promote vendor verdicts to `confirmed` root cause.
 
 ### M8 - Frozen blind benchmark
 
-Grow the incident corpus to at least 25-30 high-quality cases and freeze a holdout before tuning new playbooks.
+Grow the incident corpus to at least 25-30 high-quality cases and freeze a meaningful holdout before tuning more playbooks.
 
-Measure:
-
-- true domain among supported hypotheses;
-- next-test utility;
-- premature confirmation rate;
-- correct abstention rate;
-- diagnostic action reduction;
-- unnecessary tool-transition reduction.
+Measure true-domain coverage, next-test utility, premature confirmation, correct abstention, diagnostic-action reduction, and unnecessary tool transitions.
 
 Project gate:
 
@@ -158,28 +143,11 @@ Rethink the project if identity mapping is too unreliable, adapter maintenance d
 
 ### M9 - CLI alpha
 
-After the benchmark gate passes:
-
-- stable incident directory format;
-- `gputriage investigate <dir>`;
-- JSON report;
-- human-readable terminal report;
-- evidence references;
-- missing-evidence section;
-- next-best-test command template;
-- sanitized incident bundle export.
+After the benchmark gate passes: stable incident format, `gputriage investigate <dir>`, JSON + terminal reports, evidence references, missing-evidence section, next-test command template, and sanitized incident bundle export.
 
 ### M10 - Public alpha and integrations
 
-Then consider:
-
-- Slurm prolog/epilog helpers;
-- Kubernetes identity adapter;
-- adapter/plugin SDK;
-- optional HTML report;
-- versioned schemas;
-- public example incident library;
-- first public alpha release.
+Then consider Slurm prolog/epilog helpers, Kubernetes identity adapter, adapter/plugin SDK, optional HTML report, versioned schemas, public incident examples, and the first public alpha release.
 
 Later, only if users demand it: live SSH collection, historical incident DB, fleet baselines, MCP exposure, LLM explanation layer, web UI, notifications, enterprise integrations, and safe remediation suggestions.
 
@@ -205,7 +173,10 @@ job -> rank -> node -> GPU -> PCIe -> HCA/fabric
         hypotheses
             |
             v
-   diagnostic test planner
+ eligible diagnostic actions
+            |
+            v
+ transparent test ranking
         /          \
        v            v
  next best test   abstain
@@ -216,18 +187,22 @@ job -> rank -> node -> GPU -> PCIe -> HCA/fabric
 
 ## Immediate checkpoint
 
-M6 is now the priority. The engine should move from ordered `if` statements to explicit test-selection logic:
+M7 begins with **DCGM + journal/dmesg adapters**. These are useful because they provide two very different evidence sources—structured NVIDIA diagnostics and host event history—without expanding into a monitoring platform.
+
+The first mixed-source proof should look like:
 
 ```text
-remaining hypotheses
-        +
-missing evidence
-        +
-test cost / invasiveness / prerequisites
-        +
-which hypotheses each outcome separates
+DCGM result
+    +
+journal/XID timeline
+    +
+identity graph
+    +
+PCIe/fabric artifacts
         ↓
-ranked next diagnostic actions
+entity/time-scoped evidence
+        ↓
+existing hypotheses
+        ↓
+M6 planner selects next diagnostic
 ```
-
-This is the step that turns the PoC from a deterministic rule chain into a real diagnostic planner.
