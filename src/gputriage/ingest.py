@@ -5,6 +5,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
+from .discovery import discover_identity, merge_graphs
 from .identity import IdentityGraph, derive_identity_observations, observation_is_on_affected_path
 from .models import Observation
 from .parsers import parse_ib_counters, parse_lspci, parse_nccl_log, parse_nvidia_smi_q
@@ -100,10 +101,15 @@ def ingest_directory(root: Path) -> IngestResult:
         payload, context_observations = {}, []
         symptom, parsed_files = "unspecified incident", []
 
-    graph = IdentityGraph.from_payload(payload.get("identity_graph"))
-    affected_entities = list(payload.get("affected_entities", []))
+    manual_graph = IdentityGraph.from_payload(payload.get("identity_graph"))
+    discovery = discover_identity(root, payload)
+    graph = merge_graphs(discovery.graph, manual_graph)
+    affected_entities = list(payload.get("affected_entities", [])) or discovery.affected_entities
     artifact_entities = dict(payload.get("artifact_entities", {}))
-    warnings = graph.validation_errors()
+    warnings = discovery.warnings + graph.validation_errors()
+    for discovered_file in discovery.parsed_files:
+        if discovered_file not in parsed_files:
+            parsed_files.append(discovered_file)
 
     baseline_dir = root / "baseline"
     artifact_observations: list[Observation] = []
@@ -120,6 +126,23 @@ def ingest_directory(root: Path) -> IngestResult:
             continue
 
         entity = artifact_entities.get(current_path.name)
+        if not entity and graph.entities and affected_entities:
+            target_kind = None
+            if parser is parse_lspci:
+                target_kind = "pcie_device"
+            elif parser is parse_ib_counters:
+                target_kind = "nic_hca"
+            elif parser is parse_nvidia_smi_q:
+                target_kind = "gpu"
+            if target_kind:
+                common = graph.common_targets(affected_entities, target_kind)
+                if len(common) == 1:
+                    entity = next(iter(common))
+                elif len(common) > 1:
+                    warnings.append(
+                        f"Ambiguous {target_kind} scope for {current_path.name}: {', '.join(sorted(common))}"
+                    )
+
         current_obs = parser(current_path.read_text(encoding="utf-8", errors="replace"), source=current_path.name)
         current_obs = _attach_entity(current_obs, entity)
         artifact_observations.extend(current_obs)
