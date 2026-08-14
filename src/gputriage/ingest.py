@@ -9,6 +9,7 @@ from typing import Any, Callable
 from .adapter_utils import reconcile_adapter_entities
 from .adapters import parse_dcgm_json, parse_nvidia_system_log
 from .discovery import discover_identity, merge_graphs
+from .host_adapters import derive_irq_affinity_facts, parse_irq_affinity_csv, parse_proc_interrupts, parse_process_affinity_csv
 from .identity import IdentityGraph, derive_identity_observations, observation_is_on_affected_path
 from .models import Observation
 from .parsers import parse_ib_counters, parse_lspci, parse_nccl_log, parse_nvidia_smi_q
@@ -165,6 +166,9 @@ def ingest_directory(root: Path) -> IngestResult:
         (("ib-counters.txt", "ib_counters.txt", "ibqueryerrors.txt"), ("ib-counters*.txt", "ib_counters*.txt", "ibqueryerrors*.txt"), parse_ib_counters),
         (("dcgm-diag.json", "dcgm_diag.json", "dcgm-health.json", "dcgm_health.json"), ("dcgm*.json",), parse_dcgm_json),
         (("journal.log", "journal.txt", "dmesg.log", "dmesg.txt"), ("journal*.log", "journal*.txt", "dmesg*.log", "dmesg*.txt"), parse_nvidia_system_log),
+        (("proc-interrupts.txt", "proc_interrupts.txt"), ("proc-interrupts*.txt", "proc_interrupts*.txt"), parse_proc_interrupts),
+        (("irq-affinity.csv", "irq_affinity.csv"), ("irq-affinity*.csv", "irq_affinity*.csv"), parse_irq_affinity_csv),
+        (("process-affinity.csv", "process_affinity.csv"), ("process-affinity*.csv", "process_affinity*.csv"), parse_process_affinity_csv),
     ]
     for exact_names, patterns, parser in parser_specs:
         for current_path in _find_artifacts(root, exact_names, patterns):
@@ -200,6 +204,10 @@ def ingest_directory(root: Path) -> IngestResult:
             else:
                 warnings.append(f"Ignored unscoped or unrelated evidence {observation.key} from {observation.source}")
         artifact_observations = scoped
+
+    host_derived, host_warnings = derive_irq_affinity_facts(artifact_observations, graph, affected_entities)
+    artifact_observations.extend(host_derived)
+    warnings.extend(host_warnings)
 
     observations = _dedupe_observations(context_observations + derive_identity_observations(graph, affected_entities) + artifact_observations)
     if not parsed_files:
