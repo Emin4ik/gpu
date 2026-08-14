@@ -2,23 +2,21 @@
 
 **Evidence-first diagnostic planning for AI/GPU infrastructure.**
 
-GPU Triage is an early proof of concept for a different kind of cluster troubleshooting tool. It does not try to replace DCGM, NCCL tools, GPUd, UFM, Slurm, or Linux diagnostics. It keeps competing hypotheses explicit, identifies what evidence is missing, and recommends the next low-cost diagnostic that best separates those hypotheses.
+GPU Triage is an early proof of concept for a troubleshooting layer that makes existing infrastructure tools work together instead of replacing them.
 
 > Don't replace your GPU tools. Make them work together.
 
-## Current PoC
-
-The implementation deliberately starts with a small deterministic investigation loop:
+The core loop is deliberately simple:
 
 ```text
-observations
-    -> hypotheses
-    -> missing evidence
-    -> next best test
-    -> confirmation
+raw artifacts / observations
+        -> hypotheses
+        -> missing evidence
+        -> next best test
+        -> confirmation or abstention
 ```
 
-It uses qualitative states instead of invented confidence percentages:
+The engine uses qualitative states instead of invented confidence percentages:
 
 - `possible`
 - `supported`
@@ -26,11 +24,21 @@ It uses qualitative states instead of invented confidence percentages:
 - `confirmed`
 - `rejected`
 
-A cause is only `confirmed` when confirmation-grade evidence is supplied.
+A cause only becomes `confirmed` when confirmation-grade evidence is supplied. If the evidence is insufficient, the correct output is either a discriminating next test or an explicit abstention.
 
-## Supported diagnostic slices
+## Why this exists
 
-The current engine has small playbooks for:
+Modern AI clusters already have strong specialist tools: DCGM, NCCL diagnostics, GPUd, UFM, Slurm/Kubernetes tooling, Linux diagnostics, storage tools, and more. The gap this project is testing is the workflow between them:
+
+1. What does the current evidence actually support?
+2. Which explanations are still plausible?
+3. What evidence is missing?
+4. Which diagnostic should run next, and why?
+5. When is there enough causal evidence to call the root cause confirmed?
+
+## Current diagnostic slices
+
+The deterministic PoC currently has small playbooks for:
 
 - PCIe path degradation;
 - physical fabric/HCA path degradation;
@@ -41,31 +49,55 @@ The current engine has small playbooks for:
 - distributed work / collective invariant failures;
 - basic GPU hardware rejection from clean health evidence.
 
-These are intentionally narrow. The goal is to validate diagnostic planning, not to maximize the number of rules.
+These are intentionally narrow. The goal is to validate diagnostic planning, not to maximize the rule count.
 
-## Demo
+## Raw artifact ingestion
+
+GPU Triage can ingest a directory of artifacts:
 
 ```bash
-python -m gputriage.cli examples/pcie_suspected.json
+python -m pip install -e '.[dev]'
+gputriage ./incident
 ```
 
-Example reasoning:
+Recognized v0.1 files:
+
+- `incident.json` or `context.json` — symptom plus high-level workload/identity facts;
+- `lspci.txt` — PCIe capability/current width and speed;
+- `nvidia-smi-q.txt` — clocks, temperature, thermal slowdown, visible ECC facts;
+- `nccl.log` — transport selection, GDR-disable signals, timeout evidence;
+- `ib-counters.txt` — normalized IB/RoCE counters;
+- `baseline/<same-file>` — optional baseline used to derive deltas such as falling GPU clocks or rising fabric errors.
+
+A key design boundary is deliberate: **parsers extract evidence, they do not decide causality.** `lspci` can prove that a device is currently `x8` while its capability is `x16`; the identity/topology layer must separately establish whether that device is actually on the affected job/rank path.
+
+The NCCL parser already extracts transport/timeout/GDR facts. A dedicated NCCL transport-fallback playbook is intentionally deferred until it has its own staged validation cases.
+
+## Example reasoning
+
+Given:
 
 ```text
 localized NCCL regression
-+ affected ranks share PCIe path
++ affected ranks share a PCIe path
 + GPU health is clean
 + PCIe state is missing
-
-=> PCIe degradation is SUPPORTED, not confirmed
-=> collect PCIe link state next
 ```
 
-If a later artifact shows `x8` where `x16` is expected, PCIe degradation becomes `PROBABLE`. A targeted NCCL validation can then move it to `CONFIRMED`.
+The planner should **not** claim a root cause. It should return:
+
+```text
+PCIe degradation: SUPPORTED
+
+NEXT BEST TEST
+Collect PCIe link state on the affected path.
+```
+
+If a later artifact shows `x8` where `x16` is expected, the hypothesis becomes `PROBABLE`. A targeted NCCL validation can then move it to `CONFIRMED`.
 
 ## Staged incident evaluation
 
-`data/staged_incidents_v0.1.json` contains real incident patterns represented as staged evidence. Later evidence is not visible while the planner chooses an earlier test:
+`data/staged_incidents_v0.1.json` contains development cases represented as staged evidence. Future evidence is hidden while the planner chooses an earlier test:
 
 ```text
 T1 symptom + cheap evidence
@@ -76,40 +108,50 @@ T3 repair, rollback, targeted validation, or invariant fix
        -> CONFIRMED
 ```
 
-Run the replay with:
+Run:
 
 ```bash
-python -m gputriage.evaluator data/staged_incidents_v0.1.json
+gputriage-eval data/staged_incidents_v0.1.json
 ```
 
 Current development-corpus result:
 
 ```text
-cases:                    7
-stages:                  21
-next-test checks:        14
-next-test hits:          14
-premature confirmations: 0
-final confirmations:     7/7
+7 cases / 21 stages
+14/14 expected next-test choices
+0 premature confirmations
+7/7 final confirmations
 ```
 
-This is **not a product accuracy claim**: these cases are currently used during rule development. The next milestone is a held-out corpus that is not used to tune the playbooks.
+This is **not a product accuracy claim** because these cases are used during playbook development.
 
-## Why this exists
+## Structural holdout smoke set
 
-Modern AI clusters already have many strong specialist tools. The operational gap we are testing is the workflow between them:
+`data/holdout_incidents_v0.1.json` is separated from the development replay. It includes both supported cases and deliberately unsupported incident classes.
 
-1. What does the current evidence actually support?
-2. Which explanations are still plausible?
-3. What information is missing?
-4. Which diagnostic should be run next, and why?
-5. When is there enough causal evidence to call the root cause confirmed?
+Current local result:
 
-## Important design rule
+```text
+2 supported holdout cases
+  4/4 expected next-test choices
+  2/2 final confirmations
 
-Missing evidence must not make a hypothesis more likely by itself. A diagnostic is selected only after the available symptoms already support a hypothesis enough to justify collecting discriminating evidence.
+2 known-gap cases
+  2/2 correct abstentions
 
-The engine is also allowed to say that there is not enough evidence instead of forcing a root-cause verdict.
+0 premature confirmations
+```
+
+The holdout is still small and hand-normalized, so these numbers are not a statistically meaningful accuracy benchmark. The purpose is to test two behaviors early: generalization across independently staged cases and the ability to say **"I don't know yet"** instead of inventing a diagnosis.
+
+## Important design rules
+
+- Missing evidence must not make a hypothesis more likely by itself.
+- Observations and causes are separate objects.
+- Multiple simultaneous causes are allowed.
+- Every diagnostic conclusion must be traceable to evidence.
+- A cheap/read-only discriminating test is preferred before an invasive benchmark.
+- Unsupported incident classes should produce an explicit abstention or handoff.
 
 ## Scope boundary
 
@@ -123,15 +165,19 @@ This repository is **not** currently building:
 - a Kubernetes operator;
 - automatic remediation.
 
-The near-term goal is to validate the deterministic diagnostic planner on a corpus of real, confirmed incidents before expanding integrations.
+The near-term goal is to validate the deterministic diagnostic planner and raw-artifact adapters on real incidents before adding live integrations.
 
 ## Development
 
 ```bash
 python -m pip install -e '.[dev]'
-pytest
+pytest -q
+gputriage-eval data/staged_incidents_v0.1.json
+gputriage-eval data/holdout_incidents_v0.1.json
 ```
+
+GitHub Actions runs the test suite and both replay sets on Python 3.10 and 3.12.
 
 ## Status
 
-Research / proof of concept. APIs and schemas will change.
+Research / proof of concept. APIs, schemas, and playbooks will change.
