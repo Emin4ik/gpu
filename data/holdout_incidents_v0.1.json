@@ -1,0 +1,107 @@
+{
+  "version": "0.1",
+  "description": "Structural holdout smoke set. These cases are not an unbiased accuracy benchmark; they test generalization and abstention without changing rules to fit them.",
+  "cases": [
+    {
+      "id": "FALCON-THERMAL-HOLDOUT",
+      "split": "holdout",
+      "source": "https://arxiv.org/abs/2410.12588",
+      "symptom": "One GPU becomes slower than peers while the rest of the job remains stable.",
+      "expected_final_hypothesis": "gpu_thermal_frequency_degradation",
+      "stages": [
+        {
+          "name": "T1-peer-skew",
+          "add_observations": [
+            {"key": "compute_straggler_localized", "value": true, "source": "peer-benchmark"},
+            {"key": "gpu_utilization_high", "value": true, "source": "telemetry"}
+          ],
+          "expected_next_test": "collect_gpu_clock_thermal_state",
+          "expected_statuses": {"gpu_thermal_frequency_degradation": "supported"}
+        },
+        {
+          "name": "T2-thermal-evidence",
+          "add_observations": [
+            {"key": "gpu_clock_below_peer", "value": true, "source": "clock-diff"},
+            {"key": "thermal_throttle_reason", "value": true, "source": "nvidia-smi"}
+          ],
+          "expected_next_test": "validate_thermal_recovery",
+          "expected_statuses": {"gpu_thermal_frequency_degradation": "probable"}
+        },
+        {
+          "name": "T3-repair-validation",
+          "add_observations": [
+            {"key": "thermal_fix_restored_performance", "value": true, "source": "repair-validation"}
+          ],
+          "allow_confirmed": true,
+          "expected_statuses": {"gpu_thermal_frequency_degradation": "confirmed"}
+        }
+      ]
+    },
+    {
+      "id": "B200-STORAGE-HOLDOUT",
+      "split": "holdout",
+      "source": "https://arxiv.org/abs/2605.09370",
+      "symptom": "Large-scale startup becomes extremely slow while GPU and communication health look normal.",
+      "expected_final_hypothesis": "storage_data_starvation",
+      "stages": [
+        {
+          "name": "T1-input-gap",
+          "add_observations": [
+            {"key": "gpu_wait_for_input", "value": true, "source": "workload"},
+            {"key": "communication_path_healthy", "value": true, "source": "network-validation"}
+          ],
+          "expected_next_test": "collect_storage_client_profile",
+          "expected_statuses": {"storage_data_starvation": "supported"}
+        },
+        {
+          "name": "T2-storage-host-evidence",
+          "add_observations": [
+            {"key": "storage_client_cpu_elevated", "value": true, "source": "host-profile"}
+          ],
+          "expected_next_test": "controlled_data_path_ab",
+          "expected_statuses": {"storage_data_starvation": "probable"}
+        },
+        {
+          "name": "T3-controlled-fix",
+          "add_observations": [
+            {"key": "storage_or_loader_fix_restored_performance", "value": true, "source": "controlled-ab"}
+          ],
+          "allow_confirmed": true,
+          "expected_statuses": {"storage_data_starvation": "confirmed"}
+        }
+      ]
+    },
+    {
+      "id": "ARGUS-JIT-GAP",
+      "split": "holdout-gap",
+      "source": "https://arxiv.org/abs/2606.20374",
+      "symptom": "Rare iterations spike dramatically while GPU launches become sparse during the stall.",
+      "stages": [
+        {
+          "name": "T1-unsupported-runtime-signature",
+          "add_observations": [
+            {"key": "rare_extreme_iteration_spike", "value": true, "source": "trace"},
+            {"key": "sparse_gpu_launches_during_stall", "value": true, "source": "trace"}
+          ],
+          "expected_next_test": null
+        }
+      ]
+    },
+    {
+      "id": "ARGUS-DEPENDENCY-GAP",
+      "split": "holdout-gap",
+      "source": "https://arxiv.org/abs/2606.20374",
+      "symptom": "Many ranks wait, but one downstream pipeline rank has a compute-only delay.",
+      "stages": [
+        {
+          "name": "T1-unsupported-dependency-signature",
+          "add_observations": [
+            {"key": "many_waiting_ranks", "value": true, "source": "trace"},
+            {"key": "one_downstream_compute_straggler", "value": true, "source": "trace"}
+          ],
+          "expected_next_test": null
+        }
+      ]
+    }
+  ]
+}
