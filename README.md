@@ -10,6 +10,8 @@ The core loop is deliberately simple:
 
 ```text
 raw artifacts / observations
+        -> identity graph
+        -> scoped evidence
         -> hypotheses
         -> missing evidence
         -> next best test
@@ -30,13 +32,7 @@ A cause only becomes `confirmed` when confirmation-grade evidence is supplied. I
 
 The project roadmap, completed milestones, exit criteria, and kill/rethink conditions are tracked in [`PLAN.md`](PLAN.md).
 
-The current priority is automatic identity discovery:
-
-```text
-job/rank -> node -> GPU UUID -> PCI BDF -> HCA/NIC
-```
-
-This is more important than adding more diagnostic rules because cross-tool evidence is only causally useful when it can be tied to the affected workload path.
+M4 automatic identity discovery is now implemented in v0.1. The next priority is M5: correct per-device evidence handling on realistic multi-GPU / multi-HCA nodes.
 
 ## Why this exists
 
@@ -72,40 +68,58 @@ python -m pip install -e '.[dev]'
 gputriage ./incident
 ```
 
-Recognized v0.1 files:
+Recognized v0.1 diagnostic artifacts:
 
-- `incident.json` or `context.json` - symptom plus high-level workload/identity facts;
+- `incident.json` or `context.json` - symptom and optional high-level facts;
 - `lspci.txt` - PCIe capability/current width and speed;
 - `nvidia-smi-q.txt` - clocks, temperature, thermal slowdown, visible ECC facts;
 - `nccl.log` - transport selection, GDR-disable signals, timeout evidence;
 - `ib-counters.txt` - normalized IB/RoCE counters;
-- `baseline/<same-file>` - optional baseline used to derive deltas such as falling GPU clocks or rising fabric errors.
+- `baseline/<same-file>` - optional baseline used to derive deltas.
 
-A key design boundary is deliberate: **parsers extract evidence, they do not decide causality.** `lspci` can prove that a device is currently `x8` while its capability is `x16`; the identity/topology layer must separately establish whether that device is actually on the affected job/rank path.
+Parsers extract evidence; they do **not** decide causality. A degraded device only matters when identity reconciliation ties it to the affected workload path.
 
-The NCCL parser already extracts transport/timeout/GDR facts. A dedicated NCCL transport-fallback playbook is intentionally deferred until it has its own staged validation cases.
+## Automatic identity discovery v0.1
 
-## Identity graph v0.1
+The incident no longer needs a hand-written `identity_graph` for the supported Slurm path.
 
-`incident.json` can now provide an identity graph plus `affected_entities` and `artifact_entities`.
+Discovery artifacts:
 
-The graph connects entities such as:
+- `slurm-job.txt` - `scontrol show job -o ...` allocation metadata;
+- `rank-map.csv` - runtime-captured rank, node, local rank, and `CUDA_VISIBLE_DEVICES`;
+- `nvidia-gpus.csv` - node, GPU index, GPU UUID, and PCI bus ID;
+- `ib-devices.csv` - node, ibdev/netdev, GUID/port, and PCI BDF;
+- `nvidia-topo.txt` - GPU/NIC topology matrix.
+
+The discovery layer reconciles:
 
 ```text
-rank -> node
-rank -> GPU -> PCIe device
-rank -> HCA/NIC
+rank
+  -> node
+  -> exact GPU UUID
+  -> GPU PCI BDF
+  -> nearest unambiguous HCA/NIC
 ```
 
-GPU Triage derives shared affected paths and scopes raw hardware evidence to those paths. If the affected ranks use `pcie:0000:c1:00.0`, an `x8` observation from unrelated `pcie:0000:d1:00.0` is ignored instead of being promoted into the diagnosis.
+It can then auto-scope a single-device `lspci`, `nvidia-smi -q`, or IB-counter artifact when exactly one affected entity is known. Ambiguous mappings remain warnings instead of being guessed.
 
-Example:
+Run the end-to-end fixture:
 
 ```bash
-gputriage examples/raw_identity_case
+gputriage examples/auto_identity_case
 ```
 
-This is intentionally strict when identity context exists: device-specific hardware evidence should be attributable to the affected path before it can influence the diagnosis. Automatic Slurm/GPU/HCA identity discovery is the next milestone.
+`examples/auto_identity_case/incident.json` contains no hand-written identity graph and no `artifact_entities` mapping.
+
+See [`docs/COLLECTING_IDENTITY.md`](docs/COLLECTING_IDENTITY.md) for collection formats. `scripts/capture_rank_map.sh` is a small runtime helper for generating the rank mapping artifact under Slurm/torchrun-style launchers.
+
+## Identity safety rule
+
+Identity discovery is **evidence scoping**, not root-cause inference.
+
+For example, if the affected ranks resolve to GPU `GPU-a` on PCIe `0000:c1:00.0`, an unrelated device at `0000:d1:00.0` may still be degraded but must not contaminate the incident diagnosis.
+
+This is intentionally strict. Unresolved and ambiguous identity links are evidence gaps.
 
 ## Example reasoning
 
@@ -129,54 +143,13 @@ Collect PCIe link state on the affected path.
 
 If a later artifact shows `x8` where `x16` is expected, the hypothesis becomes `PROBABLE`. A targeted NCCL validation can then move it to `CONFIRMED`.
 
-## Staged incident evaluation
+## Evaluation
 
-`data/staged_incidents_v0.1.json` contains development cases represented as staged evidence. Future evidence is hidden while the planner chooses an earlier test:
+`data/staged_incidents_v0.1.json` contains development cases represented as staged evidence. Future evidence is hidden while the planner chooses an earlier test.
 
-```text
-T1 symptom + cheap evidence
-       -> choose next diagnostic
-T2 result of that diagnostic
-       -> refine hypotheses / choose confirmation test
-T3 repair, rollback, targeted validation, or invariant fix
-       -> CONFIRMED
-```
+`data/holdout_incidents_v0.1.json` is a separate structural smoke set containing both supported cases and deliberately unsupported incident classes.
 
-Run:
-
-```bash
-gputriage-eval data/staged_incidents_v0.1.json
-```
-
-Current development-corpus result:
-
-```text
-7 cases / 21 stages
-14/14 expected next-test choices
-0 premature confirmations
-7/7 final confirmations
-```
-
-This is **not a product accuracy claim** because these cases are used during playbook development.
-
-## Structural holdout smoke set
-
-`data/holdout_incidents_v0.1.json` is separated from the development replay. It includes both supported cases and deliberately unsupported incident classes.
-
-Current local result before the identity checkpoint:
-
-```text
-2 supported holdout cases
-  4/4 expected next-test choices
-  2/2 final confirmations
-
-2 known-gap cases
-  2/2 correct abstentions
-
-0 premature confirmations
-```
-
-The holdout is still small and hand-normalized, so these numbers are not a statistically meaningful accuracy benchmark. The purpose is to test two behaviors early: generalization across independently staged cases and the ability to say **"I don't know yet"** instead of inventing a diagnosis.
+These sets are **not an accuracy claim**. The real benchmark milestone is M8, where a larger incident corpus will be frozen before tuning new playbooks.
 
 ## Important design rules
 
@@ -185,6 +158,8 @@ The holdout is still small and hand-normalized, so these numbers are not a stati
 - Multiple simultaneous causes are allowed.
 - Every diagnostic conclusion must be traceable to evidence.
 - Device-specific evidence must be scoped to the affected identity path when that path is known.
+- Ambiguous mappings must not be silently guessed.
+- Durable identifiers such as GPU UUID / PCI BDF are preferred over local indexes.
 - A cheap/read-only discriminating test is preferred before an invasive benchmark.
 - Unsupported incident classes should produce an explicit abstention or handoff.
 
@@ -200,8 +175,6 @@ This repository is **not** currently building:
 - a Kubernetes operator;
 - automatic remediation.
 
-The near-term goal is to validate the deterministic diagnostic planner and raw-artifact adapters on real incidents before adding live integrations.
-
 ## Development
 
 ```bash
@@ -211,8 +184,8 @@ gputriage-eval data/staged_incidents_v0.1.json
 gputriage-eval data/holdout_incidents_v0.1.json
 ```
 
-GitHub Actions runs the test suite and both replay sets on Python 3.10 and 3.12.
+GitHub Actions runs the test suite and replay sets on Python 3.10 and 3.12.
 
 ## Status
 
-Research / proof of concept. APIs, schemas, and playbooks will change.
+Research / proof of concept. APIs, schemas, parsers, and playbooks will change.
