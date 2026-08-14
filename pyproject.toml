@@ -17,6 +17,7 @@ dev = ["pytest>=8"]
 
 [project.scripts]
 gputriage = "gputriage.cli:main"
+gputriage-eval = "gputriage.evaluator:main"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
