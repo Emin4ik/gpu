@@ -43,94 +43,100 @@ Implemented rank/node/GPU/PCIe/HCA entities and relations, affected-path travers
 
 Implemented Slurm allocation parsing, runtime `rank-map.csv`, NVIDIA GPU UUID/index/PCI BDF inventory, GPU reconciliation, HCA identity, conservative GPU/NIC topology reconciliation, collection helper scripts, and `examples/auto_identity_case/`.
 
-Known limitations: rank mapping still requires runtime capture, topology formats need more real fixtures, and current examples are node-local rather than a complete multi-node collector.
-
 ### M5 - Multi-device evidence model: DONE (v0.1)
 
-Implemented:
-
-- multi-value evidence index instead of flat `key -> value` state;
-- same-key observations preserved for different entities;
-- PCIe current/expected facts paired only on the same device;
-- full multi-device `lspci -vv` parsing;
-- multi-GPU `nvidia-smi -q` parsing;
-- multiple per-HCA counter artifacts;
-- entity-aware baseline comparison;
-- `Observation.raw_ref` traceability;
-- affected-path filtering before diagnosis;
-- regressions proving unrelated degraded devices cannot contaminate a diagnosis.
+Implemented multi-value entity-scoped evidence, multi-device PCIe/GPU/HCA parsing, raw evidence references, entity-aware baseline comparison, and affected-path filtering that prevents unrelated degraded devices from contaminating an investigation.
 
 See [`docs/EVIDENCE_MODEL.md`](docs/EVIDENCE_MODEL.md).
 
 ### M6 - Explicit diagnostic test planner: DONE (v0.1)
 
-Implemented:
+Implemented a `DiagnosticTestSpec` registry with explicit eligibility, cost, invasiveness, duration, information value, expected outcomes, deterministic ranking, alternatives, and human-readable selection reasons.
 
-- `DiagnosticTestSpec` registry independent from hypothesis rules;
-- eligibility separated from ranking;
-- explicit cost, invasiveness, duration class, owner hypothesis, discriminated hypotheses, information value, and expected outcome branches;
-- deterministic candidate scoring;
-- preference for read-only/cheap tests when information value is comparable;
-- confirmation tests promoted as a hypothesis becomes `probable`;
-- selected test includes a human-readable selection reason and top alternatives;
-- unsupported incidents still abstain when no useful registered test exists;
-- regression coverage preserving staged and holdout diagnostic paths.
+Important boundary: scoring ranks **diagnostic actions**, not root-cause confidence.
 
-Important boundary: scoring ranks **diagnostic actions**, not root-cause confidence. It does not turn hypotheses into probabilities.
-
-Exit criteria achieved:
-
-- planner can explain why a test was selected;
-- preferred action changes as evidence changes;
-- read-only tests beat disruptive alternatives when diagnostic value is otherwise equal;
-- old staged/holdout behavior remains green in CI.
-
-## Next work
-
-### M7 - Evidence adapters: NEXT
+### M7 - Evidence adapters: IN PROGRESS
 
 Goal: consume strong specialist tools as evidence providers instead of reimplementing them.
 
-P0 adapters:
+#### M7 P0 - DCGM + NVIDIA system logs: DONE
 
-1. **DCGM**
-   - health and diagnostic results;
-   - GPU UUID/entity mapping;
-   - XID/ECC/PCIe/NVLink-related findings where present;
-   - preserve raw test/result provenance.
+Implemented:
 
-2. **Linux incident events**
-   - `journalctl` / `dmesg` NVIDIA XID/SXID events;
-   - timestamps and GPU/PCI identifiers when present;
-   - no assumption that an old XID caused the current incident without time/entity correlation.
+- defensive DCGM JSON ingestion for diagnostic and health-style outputs;
+- per-test status and failure facts with raw provenance;
+- separation of DCGM execution/environment failures from hardware-class findings;
+- GPU-local DCGM indexes reconciled to durable GPU UUID entities through the identity graph;
+- ambiguous DCGM index mappings preserved as warnings instead of guessed;
+- `journalctl` / `dmesg` parsing for NVIDIA XID records;
+- BDF -> GPU UUID reconciliation from `NVRM: GPU at ...` lines;
+- line-level raw references for XID/SXID events;
+- conservative normalized facts for fallen-off-bus, memory/ECC-related, and NVLink-related events;
+- SXID preservation for future NVSwitch topology support;
+- affected-path filtering so an XID/DCGM finding on an unrelated GPU does not influence this incident;
+- end-to-end `examples/m7_dcgm_xid_case/`;
+- regression coverage for DCGM execution-vs-hardware semantics and adapter identity safety.
 
-3. **GPUd**
-   - consume normalized component health/output;
-   - map component findings to GPU/HCA/node entities;
-   - do not duplicate GPUd collectors.
+See [`docs/ADAPTERS.md`](docs/ADAPTERS.md).
 
-4. **NCCL Doctor / NCCL evidence**
-   - import evidence-first diagnoses/findings where available;
-   - retain source evidence and treat imported verdicts as evidence, not unquestioned truth.
+Exit criteria achieved for P0:
 
-5. **AICR snapshot/diff**
-   - import configuration/software drift;
-   - attach changes to node/software entities and incident timeline.
+- structured vendor diagnostics and host event history feed the same evidence model;
+- imported evidence preserves source/entity/raw provenance;
+- vendor failures are not silently promoted to `confirmed` root causes;
+- unresolved local GPU indexes do not bypass identity scoping.
 
-Later M7 adapters: NVLink/NVSwitch/Fabric Manager, UFM/NetQ exports, `/proc/interrupts` and CPU affinity, and simple storage/data-loader evidence.
+#### M7 P1 - Host IRQ / CPU affinity evidence: NEXT
+
+Goal: give the existing `host_cpu_irq_interference` playbook real host artifacts instead of manually normalized facts.
+
+Build:
+
+1. `/proc/interrupts` parser;
+2. IRQ affinity parser (`/proc/irq/*/smp_affinity_list` or collected equivalent);
+3. process/thread CPU affinity artifact (`taskset -pc`, launcher/NCCL thread metadata where available);
+4. NIC/netdev -> IRQ -> CPU mapping through HCA/netdev identity;
+5. normalized facts such as `nic_irq_cpus`, `process_allowed_cpus`, and a derived `irq_shares_nccl_cpu` observation only when both sides are known;
+6. raw references and explicit ambiguity warnings;
+7. end-to-end fixture with one conflicting and one clean affinity layout.
 
 Exit criteria:
 
-- at least two external specialist tools feed the same evidence model;
-- imported evidence keeps source/entity/timestamp provenance;
-- planner can select a next action using mixed evidence from multiple adapters;
-- adapters do not silently promote vendor verdicts to `confirmed` root cause.
+- engine can move host IRQ hypothesis from `supported` to `probable` using raw host artifacts;
+- CPU/IRQ evidence is tied to the affected NIC/node, not just any interrupt on the host;
+- missing process-thread identity results in an evidence gap rather than a guessed overlap.
+
+#### M7 P2 - Specialist tool imports
+
+After P1, add only adapters that materially reduce manual tool transitions:
+
+- GPUd findings/output;
+- NCCL Doctor evidence/findings;
+- NVIDIA AICR snapshot/diff;
+- selected NVLink/NVSwitch/Fabric Manager evidence;
+- UFM/NetQ exported evidence where available;
+- simple storage/data-loader evidence.
+
+Principle: consume specialist conclusions as **evidence**, never as unquestioned truth.
+
+M7 completion gate:
+
+- at least three distinct evidence domains feed the shared model (GPU/vendor diagnostic, host OS, and communication/fabric or config);
+- mixed-source evidence changes planner decisions in deterministic tests;
+- adapter maintenance remains smaller than diagnostic-knowledge development.
 
 ### M8 - Frozen blind benchmark
 
 Grow the incident corpus to at least 25-30 high-quality cases and freeze a meaningful holdout before tuning more playbooks.
 
-Measure true-domain coverage, next-test utility, premature confirmation, correct abstention, diagnostic-action reduction, and unnecessary tool transitions.
+Measure:
+
+- true-domain coverage among supported hypotheses;
+- next-test utility;
+- premature confirmation rate;
+- correct abstention rate;
+- diagnostic-action reduction;
+- unnecessary tool transitions.
 
 Project gate:
 
@@ -187,22 +193,27 @@ job -> rank -> node -> GPU -> PCIe -> HCA/fabric
 
 ## Immediate checkpoint
 
-M7 begins with **DCGM + journal/dmesg adapters**. These are useful because they provide two very different evidence sources—structured NVIDIA diagnostics and host event history—without expanding into a monitoring platform.
+M7 P1: turn host IRQ / CPU-affinity state into entity-scoped evidence.
 
-The first mixed-source proof should look like:
+Target flow:
 
 ```text
-DCGM result
-    +
-journal/XID timeline
-    +
-identity graph
-    +
-PCIe/fabric artifacts
+localized communication wait
+        +
+GPU kernels match peers
+        +
+HCA/netdev identity
+        +
+/proc/interrupts
+        +
+IRQ affinity
+        +
+NCCL/process CPU affinity
         ↓
-entity/time-scoped evidence
+Does NIC interrupt processing overlap the communication CPU?
         ↓
-existing hypotheses
-        ↓
-M6 planner selects next diagnostic
+YES -> host CPU/IRQ hypothesis becomes probable
+NO  -> weaken that path and let planner prefer fabric/other diagnostics
 ```
+
+This checkpoint is more valuable than adding another generic health collector because it closes a real cross-layer gap already represented in the incident corpus.
