@@ -4,188 +4,141 @@ Last updated: 2026-08-14
 
 ## Product thesis
 
-GPU Triage is an open, evidence-first diagnostic planner for AI/GPU infrastructure.
-It should make existing tools work together rather than replace DCGM, GPUd, NCCL tools, UFM, Slurm, Linux diagnostics, or vendor control planes.
+GPU Triage is an open, evidence-first diagnostic planner for AI/GPU infrastructure. It should make existing tools work together rather than replace DCGM, GPUd, NCCL tooling, Slurm, fabric tooling, Linux diagnostics, or vendor control planes.
 
 Core promise:
 
 > Do not replace your GPU tools. Make them work together.
 
-The product should answer three questions:
+The planner should answer:
 
 1. What does the current evidence actually support?
-2. What important evidence is still missing?
+2. What important evidence is missing or contradicting the current hypotheses?
 3. Which diagnostic action should run next, and why?
 
 ## Non-goals
 
-Early versions will not become another monitoring daemon, Prometheus/Grafana stack, scheduler, generic MCP gateway, LLM log chatbot, Kubernetes operator, or autonomous remediation system.
+Early versions are not another monitoring daemon, Prometheus/Grafana stack, scheduler, generic MCP gateway, LLM log chatbot, Kubernetes operator, or autonomous remediation system.
 
-## Status
+## Milestone status
 
-### M0 - Problem validation: DONE
+### M0 — Problem validation: DONE
 
-Competitive research and a corpus of real cross-layer GPU infrastructure incidents established the wedge: diagnostic planning across existing tools, not another health scanner.
+Competitive research and public production incidents established the wedge: cross-tool diagnostic planning, not another health scanner.
 
-### M1 - Deterministic diagnosis core: DONE
+### M1 — Deterministic diagnosis core: DONE
 
-Implemented observation -> hypothesis -> missing evidence -> next-test flow, qualitative hypothesis states, explicit abstention, causal confirmation rules, staged replay, and a structural holdout smoke set.
+Observation -> hypothesis -> missing evidence -> next-test flow; qualitative hypothesis states; explicit abstention; confirmation only after causal-grade evidence.
 
-### M2 - Raw artifact ingestion: DONE
+### M2 — Raw artifact ingestion: DONE
 
-Implemented `lspci -vv`, `nvidia-smi -q`, NCCL log, IB/RoCE counter, directory ingest, and baseline support. Parsers extract facts but do not declare causality.
+`lspci -vv`, `nvidia-smi -q`, NCCL logs, IB/RoCE counters, directory ingest, and baseline comparison.
 
-### M3 - Identity graph: DONE
+### M3 — Identity graph: DONE
 
-Implemented rank/node/GPU/PCIe/HCA entities and relations, affected-path traversal, artifact scoping, rejection of unrelated hardware evidence, and explicit unresolved/ambiguous identity warnings.
+Rank/node/GPU/PCIe/HCA entities, affected-path traversal, artifact scoping, and rejection of unrelated hardware evidence.
 
-### M4 - Automatic identity discovery: DONE (v0.1)
+### M4 — Automatic identity discovery: DONE (v0.1)
 
-Implemented Slurm allocation parsing, runtime `rank-map.csv`, NVIDIA GPU UUID/index/PCI BDF inventory, GPU reconciliation, HCA identity, conservative GPU/NIC topology reconciliation, collection helper scripts, and `examples/auto_identity_case/`.
+Slurm allocation, runtime rank mapping, GPU UUID/index/PCI BDF inventory, HCA identity, and conservative GPU/NIC topology reconciliation.
 
-### M5 - Multi-device evidence model: DONE (v0.1)
+### M5 — Multi-device evidence model: DONE (v0.1)
 
-Implemented multi-value entity-scoped evidence, multi-device PCIe/GPU/HCA parsing, raw evidence references, entity-aware baseline comparison, and affected-path filtering that prevents unrelated degraded devices from contaminating an investigation.
+Entity-scoped multi-value evidence, same-device fact pairing, raw evidence references, and affected-path filtering. See [`docs/EVIDENCE_MODEL.md`](docs/EVIDENCE_MODEL.md).
 
-See [`docs/EVIDENCE_MODEL.md`](docs/EVIDENCE_MODEL.md).
+### M6 — Explicit diagnostic test planner: DONE (v0.1)
 
-### M6 - Explicit diagnostic test planner: DONE (v0.1)
+Independent test registry with eligibility, cost, invasiveness, duration, information value, expected outcomes, alternatives, and deterministic ranking. Scores rank actions, not root-cause confidence.
 
-Implemented a `DiagnosticTestSpec` registry with explicit eligibility, cost, invasiveness, duration, information value, expected outcomes, deterministic ranking, alternatives, and human-readable selection reasons.
+### M7 — Cross-tool evidence adapters: DONE (v0.1)
 
-Important boundary: scoring ranks **diagnostic actions**, not root-cause confidence.
+Implemented DCGM diagnostic/health ingestion, NVIDIA XID/SXID history, `/proc/interrupts`, IRQ affinity, communication-process affinity, and HCA-aware CPU overlap. Vendor findings remain evidence rather than automatic root-cause verdicts.
 
-### M7 - Cross-tool evidence adapters: DONE (v0.1)
+See [`docs/ADAPTERS.md`](docs/ADAPTERS.md) and [`docs/HOST_AFFINITY.md`](docs/HOST_AFFINITY.md).
 
-Goal achieved: specialist/vendor and host-OS artifacts now feed the same identity-scoped evidence model without being promoted directly to root-cause verdicts.
+### M8 — Frozen blind benchmark: BASELINE COMPLETE (v0.1)
 
-#### M7 P0 - DCGM + NVIDIA system logs: DONE
+The benchmark infrastructure and first frozen run are complete.
 
-Implemented:
+Corpus:
 
-- defensive DCGM JSON ingestion for diagnostic and health-style outputs;
-- per-test status and failure facts with raw provenance;
-- separation of DCGM execution/environment failures from hardware-class findings;
-- GPU-local DCGM indexes reconciled to durable GPU UUID entities through the identity graph;
-- ambiguous DCGM index mappings preserved as warnings instead of guessed;
-- `journalctl` / `dmesg` parsing for NVIDIA XID records;
-- BDF -> GPU UUID reconciliation from `NVRM: GPU at ...` lines;
-- line-level raw references for XID/SXID events;
-- conservative normalized facts for fallen-off-bus, memory/ECC-related, and NVLink-related events;
-- SXID preservation for future NVSwitch topology support;
-- affected-path filtering so an XID/DCGM finding on an unrelated GPU does not influence this incident;
-- end-to-end `examples/m7_dcgm_xid_case/`.
+- 30 scenarios total;
+- 21 public source incidents;
+- 9 adversarial/mutation scenarios;
+- 18 development scenarios;
+- 12 frozen holdout scenarios.
 
-See [`docs/ADAPTERS.md`](docs/ADAPTERS.md).
+The frozen `v0.1` holdout was checksummed **before** its first run. It must not be edited or re-rubriced in place after seeing the results. A new evaluation requires a new benchmark version.
 
-#### M7 P1 - Host IRQ / CPU affinity evidence: DONE
+First frozen holdout result:
 
-Implemented:
+| Metric | v0.1 | Gate | Result |
+|---|---:|---:|---|
+| Domain Recall@3 | 100% (9/9) | >= 75% | PASS |
+| Next-test utility 2/2 | 81.8% (9/11) | >= 70% | PASS |
+| Premature confirmation | 0% (0/19 stages) | <= 5% | PASS |
+| Abstention accuracy | 80% (4/5) | >= 90% | **FAIL** |
+| Forbidden-hypothesis error | 25% (1/4) | <= 5% | **FAIL** |
+| Median diagnostic-action reduction | 33.3% | >= 30% | PASS |
+| Median tool-transition reduction | 66.7% | >= 50% | PASS |
 
-- `/proc/interrupts` parser with per-IRQ/per-CPU activity and raw line provenance;
-- IRQ affinity artifact with configured and effective CPU sets;
-- process/rank CPU-affinity artifact for communication roles;
-- HCA/netdev/PCI identity attached to IRQ affinity;
-- correlation only for active IRQs that map to an HCA/NIC on the affected rank path;
-- effective IRQ CPU affinity preferred when available, falling back to configured affinity;
-- derived `irq_shares_nccl_cpu` only when active IRQ + affected HCA + affected-rank communication CPU affinity are all known;
-- `irq_affinity_clean` when comparable CPU sets are known and do not overlap;
-- explicit evidence-gap warnings instead of guessed overlap when process/HCA/activity identity is missing;
-- existing `host_cpu_irq_interference` playbook moves to `probable` from raw host artifacts;
-- planner then selects `short_cpu_profile` as the causal confirmation step;
-- collection helpers `scripts/capture_irq_affinity.sh` and `scripts/capture_process_affinity.sh`;
-- end-to-end `examples/m7_irq_affinity_case/`.
+Safety is green: frozen checksum verified and no premature `confirmed` verdicts occurred. The **full M8 project gate is not passed**, because abstention and red-herring/forbidden-hypothesis handling missed their thresholds.
 
-See [`docs/HOST_AFFINITY.md`](docs/HOST_AFFINITY.md).
+The first-run gaps are deliberately retained as benchmark findings:
 
-M7 v0.1 completion gate:
+1. known-clean IRQ affinity still leaves `host_cpu_irq_interference` supported and can cause redundant `collect_irq_affinity`;
+2. known-equal per-rank work can still trigger `compare_rank_work_invariants`;
+3. a failed rollback can still trigger `controlled_rollback_ab` again.
 
-- GPU/vendor diagnostics, host event history, host IRQ/CPU evidence, and existing communication/fabric artifacts share one observation model;
-- evidence keeps source/entity/raw provenance;
-- mixed-source evidence changes planner state without bypassing confirmation rules;
-- ambiguous identity links remain warnings/evidence gaps;
-- imported tool findings are evidence, never unquestioned `confirmed` verdicts;
-- full Python 3.10/3.12 CI plus staged/holdout replay remains green.
-
-Deferred until after the benchmark unless a concrete case requires them:
-
-- GPUd findings/output;
-- NCCL Doctor findings;
-- NVIDIA AICR snapshot/diff;
-- richer NVLink/NVSwitch/Fabric Manager topology;
-- UFM/NetQ exports;
-- storage/data-loader specialist adapters.
-
-Reason for deferral: M8 should now prove that the diagnostic-planning layer adds value before adapter breadth grows further.
+See [`docs/BENCHMARK.md`](docs/BENCHMARK.md) and [`docs/M8_RESULTS_v0.1.md`](docs/M8_RESULTS_v0.1.md).
 
 ## Next work
 
-### M8 - Frozen blind benchmark: NEXT
+### M8.1 — Negative evidence and completed-test memory: NEXT
 
-Goal: decide objectively whether GPU Triage deserves continued development before adding more integrations or UI.
+Do **not** tune against the frozen v0.1 holdout. Fix the general diagnostic model using new development cases only.
 
 Build:
 
-1. grow the incident corpus to at least 25-30 high-quality cases with source links and quality grades;
-2. classify each case as confirmed root cause, strong causal evidence, or unresolved/symptom-only;
-3. freeze a holdout set **before** tuning additional playbooks;
-4. preserve staged evidence (`T0 symptom -> T1 cheap evidence -> T2 selected diagnostic -> T3 confirmation`) so future facts stay hidden;
-5. include unsupported cases where correct behavior is abstention;
-6. include misleading alerts, wrong-device evidence, ambiguous identities, and multi-cause incidents;
-7. record which existing specialist tool already closes each case so GPU Triage is not rewarded for duplicate functionality.
+1. explicit negative/contradicting observations for completed diagnostics, e.g. clean IRQ affinity, equal rank work, healthy targeted validation, failed rollback, clean fabric/PCIe checks;
+2. completed-test/result memory so a diagnostic that already answered its question cannot be selected again;
+3. hypothesis weakening/rejection rules driven by negative controlled-test outcomes;
+4. planner prerequisites that distinguish “missing evidence” from “evidence already collected and negative”;
+5. new development mutations for redundant-test prevention and hypothesis reversal;
+6. deterministic state-transition tests for `supported -> possible/rejected` where negative evidence warrants it.
 
-Primary metrics:
+Exit criteria:
 
-- true root-cause domain among supported/top hypotheses;
-- next-test utility;
-- premature confirmation rate;
-- correct abstention rate;
-- diagnostic-action reduction;
-- unnecessary tool-transition reduction;
-- identity-scoping error rate;
-- duplicate-value rate versus DCGM/GPUd/NCCL Doctor/etc.
+- all new development regressions pass;
+- no change to `benchmark_holdout_v0.1` or its freeze hash;
+- old unit/staged regressions remain green;
+- no new path to premature confirmation.
 
-Project gate:
+### M8.2 — New independently frozen benchmark v0.2
 
-- near-zero premature `confirmed` verdicts;
-- useful next test on at least 70% of supported held-out cases;
-- correct abstention on unsupported cases;
-- meaningful reduction in manual diagnostic actions/tool transitions;
-- clear value beyond restating specialist-tool output.
+Only after M8.1 stabilizes:
 
-Rethink or kill the project if:
+1. add or replace public incidents without exposing the new answer rubric to rule tuning;
+2. build a new holdout split;
+3. freeze it under a new SHA-256 before running it;
+4. run once and record all pass/fail gates;
+5. advance to M9 only if the full gate passes.
 
-- most recommendations duplicate existing tools with little workflow reduction;
-- identity mapping is too unreliable for causal correlation;
-- adapter maintenance dominates diagnostic-knowledge development;
-- useful diagnosis requires an always-on profiler for most incidents;
-- confident false root-cause claims appear regularly.
+### M9 — CLI alpha: BLOCKED BY M8 GATE
 
-### M9 - CLI alpha
-
-Only after the M8 gate passes:
+Once the benchmark gate passes:
 
 - stable incident directory format;
 - `gputriage investigate <dir>`;
 - machine-readable JSON report;
 - human-readable terminal report;
-- evidence references for every supported conclusion;
-- explicit missing-evidence section;
+- evidence references and missing/contradicting evidence;
 - next-best-test command template;
-- sanitized incident bundle export.
+- sanitized incident-bundle export.
 
-### M10 - Public alpha and integrations
+### M10 — Public alpha and integrations
 
-Then consider:
-
-- Slurm prolog/epilog collection helpers;
-- Kubernetes identity adapter;
-- adapter/plugin SDK;
-- optional HTML report;
-- versioned schemas;
-- public example incident library;
-- deferred GPUd/NCCL Doctor/AICR adapters where benchmark gaps justify them;
-- first public alpha release.
+After M9: Slurm collection helpers, optional Kubernetes identity adapter, adapter/plugin SDK, optional HTML report, versioned schemas, public examples, and deferred specialist adapters only where benchmark gaps justify them.
 
 Later, only if users demand it: live SSH collection, historical incident DB, fleet baselines, MCP exposure, LLM explanation layer, web UI, notifications, enterprise integrations, and safe remediation suggestions.
 
@@ -202,7 +155,10 @@ raw artifacts / specialist tools
 job -> rank -> node -> GPU -> PCIe -> HCA/fabric
             |
             v
-   multi-device evidence store
+   entity-scoped evidence
+   + positive evidence
+   + negative evidence      <- M8.1
+   + completed test results <- M8.1
             |
             v
        affected-path filter
@@ -220,15 +176,9 @@ job -> rank -> node -> GPU -> PCIe -> HCA/fabric
  next best test   abstain
        |
        v
- new evidence -> confirm / reject / keep multiple causes
+ new evidence -> strengthen / weaken / reject / confirm
 ```
 
-## Immediate checkpoint
+## Current decision
 
-M8: freeze a real blind benchmark before expanding the product surface.
-
-The important question is no longer “can we parse another tool?” It is:
-
-> Given only the evidence an operator actually had at each stage, does GPU Triage choose a useful next diagnostic and avoid premature conclusions?
-
-If the answer is yes on held-out real incidents, the project earns a CLI/public-alpha phase. If not, we should fix or stop the diagnostic model rather than hide the problem behind more adapters.
+The v0.1 benchmark gives enough signal to continue the project, but not enough to advance to CLI alpha. The next engineering priority is **better handling of negative evidence and already-completed diagnostics**, followed by a fresh independently frozen v0.2 benchmark.
