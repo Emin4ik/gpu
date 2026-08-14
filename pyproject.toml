@@ -18,6 +18,7 @@ dev = ["pytest>=8"]
 [project.scripts]
 gputriage = "gputriage.cli:main"
 gputriage-eval = "gputriage.evaluator:main"
+gputriage-benchmark = "gputriage.benchmark:main"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
