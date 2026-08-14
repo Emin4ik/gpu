@@ -1,0 +1,3 @@
+rank,node,local_rank,cuda_visible_devices
+16,gpu001,0,0
+17,gpu001,0,0
