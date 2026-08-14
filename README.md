@@ -8,7 +8,7 @@ GPU Triage is an early proof of concept for a different kind of cluster troubles
 
 ## Current PoC
 
-The first implementation deliberately supports only a tiny deterministic investigation loop:
+The implementation deliberately starts with a small deterministic investigation loop:
 
 ```text
 observations
@@ -27,6 +27,21 @@ It uses qualitative states instead of invented confidence percentages:
 - `rejected`
 
 A cause is only `confirmed` when confirmation-grade evidence is supplied.
+
+## Supported diagnostic slices
+
+The current engine has small playbooks for:
+
+- PCIe path degradation;
+- physical fabric/HCA path degradation;
+- GPU thermal/frequency degradation;
+- software/configuration regression;
+- host CPU / IRQ interference;
+- storage/data-pipeline starvation;
+- distributed work / collective invariant failures;
+- basic GPU hardware rejection from clean health evidence.
+
+These are intentionally narrow. The goal is to validate diagnostic planning, not to maximize the number of rules.
 
 ## Demo
 
@@ -48,6 +63,38 @@ localized NCCL regression
 
 If a later artifact shows `x8` where `x16` is expected, PCIe degradation becomes `PROBABLE`. A targeted NCCL validation can then move it to `CONFIRMED`.
 
+## Staged incident evaluation
+
+`data/staged_incidents_v0.1.json` contains real incident patterns represented as staged evidence. Later evidence is not visible while the planner chooses an earlier test:
+
+```text
+T1 symptom + cheap evidence
+       -> choose next diagnostic
+T2 result of that diagnostic
+       -> refine hypotheses / choose confirmation test
+T3 repair, rollback, targeted validation, or invariant fix
+       -> CONFIRMED
+```
+
+Run the replay with:
+
+```bash
+python -m gputriage.evaluator data/staged_incidents_v0.1.json
+```
+
+Current development-corpus result:
+
+```text
+cases:                    7
+stages:                  21
+next-test checks:        14
+next-test hits:          14
+premature confirmations: 0
+final confirmations:     7/7
+```
+
+This is **not a product accuracy claim**: these cases are currently used during rule development. The next milestone is a held-out corpus that is not used to tune the playbooks.
+
 ## Why this exists
 
 Modern AI clusters already have many strong specialist tools. The operational gap we are testing is the workflow between them:
@@ -57,6 +104,12 @@ Modern AI clusters already have many strong specialist tools. The operational ga
 3. What information is missing?
 4. Which diagnostic should be run next, and why?
 5. When is there enough causal evidence to call the root cause confirmed?
+
+## Important design rule
+
+Missing evidence must not make a hypothesis more likely by itself. A diagnostic is selected only after the available symptoms already support a hypothesis enough to justify collecting discriminating evidence.
+
+The engine is also allowed to say that there is not enough evidence instead of forcing a root-cause verdict.
 
 ## Scope boundary
 
