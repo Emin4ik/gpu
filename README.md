@@ -28,10 +28,14 @@ The engine uses qualitative hypothesis states (`possible`, `supported`, `probabl
 - multi-device evidence storage without key collisions;
 - affected-path filtering so unrelated broken hardware cannot contaminate an investigation;
 - explicit diagnostic-test registry and deterministic next-test ranking;
-- selection explanations, expected outcome branches, and alternatives;
+- DCGM diagnostic/health JSON adapter;
+- NVIDIA `journalctl` / `dmesg` XID/SXID adapter;
+- DCGM local GPU-index reconciliation to durable GPU UUID identity;
+- explicit separation of diagnostic execution failures from hardware-class findings;
+- line-level raw provenance for NVIDIA system events;
 - staged evaluation and explicit abstention.
 
-The full roadmap and exit criteria are in [`PLAN.md`](PLAN.md). M0-M6 are implemented at PoC level; **M7 evidence adapters are next**.
+The full roadmap and exit criteria are in [`PLAN.md`](PLAN.md). M0-M6 are implemented at PoC level; **M7 is in progress and P0 (DCGM + NVIDIA system logs) is complete**.
 
 ## Automatic identity discovery
 
@@ -52,6 +56,24 @@ Related facts are paired only when their entities match. If the affected workloa
 
 See [`docs/EVIDENCE_MODEL.md`](docs/EVIDENCE_MODEL.md).
 
+## External evidence adapters
+
+M7 now imports two very different evidence sources into the same model:
+
+### DCGM
+
+Recognized files include `dcgm-diag.json`, `dcgm-health.json`, and other `dcgm*.json` artifacts.
+
+The adapter keeps per-test status, failure codes/messages, entity scope, and raw references. A failed DCGM test is not automatically a hardware verdict: execution/environment failures are represented separately.
+
+### NVIDIA kernel / journal events
+
+Recognized files include `journal.log`, `dmesg.log`, and matching text variants.
+
+The adapter extracts GPU UUID / PCI mapping plus XID/SXID events and preserves line-level references. When identity is known, an event on an unrelated GPU is filtered out of the current incident.
+
+See [`docs/ADAPTERS.md`](docs/ADAPTERS.md).
+
 ## Explicit next-test planning
 
 Playbooks decide which diagnostics are eligible. The planner then ranks those actions using transparent operational attributes:
@@ -68,15 +90,7 @@ owner hypothesis state
 
 This score ranks **diagnostic actions**, not root-cause probability.
 
-A selected action carries:
-
-- why it is useful;
-- cost / invasiveness / duration;
-- expected outcome branches;
-- why it beat the other eligible diagnostics;
-- top alternatives.
-
-For example, when PCIe and fabric are both supported but PCIe state is missing, a cheap read-only PCIe check can outrank fabric collection. If PCIe later becomes `probable`, the planner can switch to targeted NCCL validation for causal confirmation.
+A selected action carries why it is useful, cost/invasiveness/duration, expected outcome branches, why it beat other eligible diagnostics, and top alternatives.
 
 ## Try it
 
@@ -85,12 +99,13 @@ python -m pip install -e '.[dev]'
 
 gputriage examples/auto_identity_case
 gputriage examples/multidevice_case
+gputriage examples/m7_dcgm_xid_case
 ```
 
 ## Design rules
 
 - missing evidence does not make a hypothesis more likely;
-- parsers extract facts, not causes;
+- parsers/adapters extract facts, not causes;
 - observations and causes are separate objects;
 - multiple causes are allowed;
 - every conclusion must be traceable to evidence;
@@ -98,7 +113,8 @@ gputriage examples/multidevice_case
 - durable identifiers such as GPU UUID and PCI BDF are preferred over local indexes;
 - cheap/read-only diagnostics are preferred when they provide comparable information;
 - unsupported incident classes should produce abstention or handoff;
-- imported vendor-tool verdicts will be treated as evidence, not unquestioned truth.
+- imported vendor-tool verdicts are evidence, not unquestioned truth;
+- a diagnostic that failed to execute is not treated as a component hardware failure.
 
 ## Scope boundary
 
@@ -117,4 +133,4 @@ GitHub Actions runs tests and replay sets on supported Python versions.
 
 ## Status
 
-Research / proof of concept. APIs, schemas, adapters, and playbooks will change. **Next: M7, starting with DCGM and journal/dmesg evidence adapters.**
+Research / proof of concept. APIs, schemas, adapters, and playbooks will change. **Next: M7 P1, raw `/proc/interrupts` + IRQ/process CPU-affinity evidence for the host CPU/IRQ playbook.**
