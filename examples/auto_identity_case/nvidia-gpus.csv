@@ -1,0 +1,2 @@
+node,index,uuid,pci.bus_id
+gpu001,0,GPU-demo,00000000:c1:00.0
