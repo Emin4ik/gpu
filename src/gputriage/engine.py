@@ -3,7 +3,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from .evidence import EvidenceIndex
-from .models import DiagnosticTest, Hypothesis, HypothesisStatus, Investigation, Observation
+from .models import Hypothesis, HypothesisStatus, Investigation, Observation
+from .planner import plan_next_test
 
 
 def _truth(facts: EvidenceIndex, key: str) -> bool:
@@ -176,49 +177,6 @@ def _collective_desync_hypothesis(facts: EvidenceIndex) -> Hypothesis:
     return h
 
 
-def _test(id: str, title: str, purpose: str, command: str | None, cost: str, invasiveness: str, *hypotheses: str) -> DiagnosticTest:
-    return DiagnosticTest(id=id, title=title, purpose=purpose, command=command, cost=cost, invasiveness=invasiveness, discriminates_between=tuple(hypotheses))
-
-
-def _choose_next_test(hypotheses: list[Hypothesis], facts: EvidenceIndex) -> DiagnosticTest | None:
-    by_id = {h.id: h for h in hypotheses}
-    pcie = by_id["pcie_path_degradation"]
-    fabric = by_id["fabric_link_degradation"]
-    thermal = by_id["gpu_thermal_frequency_degradation"]
-    software = by_id["software_config_regression"]
-    host_cpu = by_id["host_cpu_irq_interference"]
-    storage = by_id["storage_data_starvation"]
-    desync = by_id["collective_work_invariant_failure"]
-
-    if pcie.status == HypothesisStatus.SUPPORTED and pcie.missing_evidence:
-        return _test("collect_pcie_link_state", "Collect PCIe link state on the affected path", "Separate PCIe degradation from fabric/NCCL hypotheses using a cheap read-only check.", "lspci -vv -s <GPU_OR_HCA_BDF>", "low", "read_only", "pcie_path_degradation", "fabric_link_degradation")
-    if pcie.status == HypothesisStatus.PROBABLE and not _truth(facts, "targeted_nccl_validation_failed"):
-        return _test("targeted_nccl_validation", "Run a targeted NCCL validation on affected nodes", "Confirm that the observed PCIe-path abnormality produces the workload communication regression.", "<targeted nccl-tests command>", "medium", "low_impact", "pcie_path_degradation", "software_config_regression")
-    if fabric.status == HypothesisStatus.SUPPORTED and fabric.missing_evidence:
-        return _test("collect_fabric_counters", "Collect HCA / fabric error counters", "Check whether the localized communication regression follows a physical or congested fabric path.", "ibqueryerrors -rR || ethtool -S <NETDEV>", "low", "read_only", "fabric_link_degradation", "pcie_path_degradation")
-    if fabric.status == HypothesisStatus.PROBABLE and not _truth(facts, "faulty_fabric_port_confirmed"):
-        return _test("inspect_fabric_port", "Inspect the mapped physical fabric port", "Localize rising NIC/HCA errors to a switch port, cable, or transceiver before remediation.", "mlxlink -d <DEVICE> || <query switch telemetry for mapped port>", "low", "read_only", "fabric_link_degradation")
-    if thermal.status == HypothesisStatus.SUPPORTED and thermal.missing_evidence:
-        return _test("collect_gpu_clock_thermal_state", "Compare GPU clocks and thermal throttle reasons to peers", "High utilization does not prove healthy compute; clocks and throttle reasons distinguish thermal degradation.", "nvidia-smi -q -d CLOCK,TEMPERATURE,PERFORMANCE", "low", "read_only", "gpu_thermal_frequency_degradation", "gpu_hardware_degradation")
-    if thermal.status == HypothesisStatus.PROBABLE and not _truth(facts, "thermal_fix_restored_performance"):
-        return _test("validate_thermal_recovery", "Revalidate performance after correcting the thermal condition", "A repair/recovery check turns a plausible thermal correlation into causal confirmation.", "<repeat the same peer/baseline workload check>", "medium", "low_impact", "gpu_thermal_frequency_degradation")
-    if host_cpu.status == HypothesisStatus.SUPPORTED and host_cpu.missing_evidence:
-        return _test("collect_irq_affinity", "Inspect NIC IRQ and NCCL CPU affinity", "Test whether host interrupt processing can preempt the communication thread without blaming the fabric prematurely.", "cat /proc/interrupts && taskset -pc <NCCL_PID>", "low", "read_only", "host_cpu_irq_interference", "fabric_link_degradation")
-    if host_cpu.status == HypothesisStatus.PROBABLE and not _truth(facts, "cpu_profile_confirms_softirq_preemption"):
-        return _test("short_cpu_profile", "Capture a short CPU/kernel profile on the affected node", "Confirm that NET_RX_SOFTIRQ or related host work actually preempts the NCCL communication path.", "perf record -F 99 -a -- sleep 15", "medium", "low_impact", "host_cpu_irq_interference")
-    if storage.status == HypothesisStatus.SUPPORTED and storage.missing_evidence:
-        return _test("collect_storage_client_profile", "Inspect data-loader and storage-client work", "Distinguish storage/data starvation from GPU or collective bottlenecks when input gaps dominate.", "<collect short host CPU/storage client profile and request-shape stats>", "medium", "read_only", "storage_data_starvation", "host_cpu_irq_interference")
-    if storage.status == HypothesisStatus.PROBABLE and not _truth(facts, "storage_or_loader_fix_restored_performance"):
-        return _test("controlled_data_path_ab", "Run a controlled data-path A/B validation", "Confirm whether the identified storage/data-loader path is causal rather than merely correlated.", "<repeat workload with corrected loader/storage path>", "medium", "low_impact", "storage_data_starvation")
-    if desync.status == HypothesisStatus.SUPPORTED and desync.missing_evidence:
-        return _test("compare_rank_work_invariants", "Compare per-rank work and collective invariants", "Before blaming NCCL transport, verify that all ranks execute the same number and sequence of collective steps.", "<compare per-rank steps/batches/tokens/blocks and flight-recorder collective state>", "low", "read_only", "collective_work_invariant_failure", "fabric_link_degradation")
-    if desync.status == HypothesisStatus.PROBABLE and not _truth(facts, "invariant_fix_restored_training"):
-        return _test("validate_invariant_fix", "Repeat the run with equalized per-rank work invariants", "Confirm that collective synchronization recovers when ranks execute equal work/step counts.", "<rerun after enforcing equal per-rank work counts>", "medium", "low_impact", "collective_work_invariant_failure")
-    if software.status == HypothesisStatus.PROBABLE and not _truth(facts, "rollback_restored_performance"):
-        return _test("controlled_rollback_ab", "Run a controlled rollback or A/B against the last known-good configuration", "Confirm whether the observed change is causal instead of merely correlated with the slowdown.", "<rollback or controlled A/B using the previous configuration>", "medium", "low_impact", "software_config_regression")
-    return None
-
-
 def investigate(symptom: str, observations: Iterable[Observation]) -> Investigation:
     facts = EvidenceIndex.from_iterable(observations)
     hypotheses = [
@@ -232,7 +190,7 @@ def investigate(symptom: str, observations: Iterable[Observation]) -> Investigat
         _collective_desync_hypothesis(facts),
     ]
     confirmed = [h for h in hypotheses if h.status == HypothesisStatus.CONFIRMED]
-    next_test = _choose_next_test(hypotheses, facts)
+    next_test = plan_next_test(hypotheses, facts)
     verdict = None
     notes: list[str] = []
     if confirmed:

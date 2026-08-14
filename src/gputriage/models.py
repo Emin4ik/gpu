@@ -41,6 +41,11 @@ class DiagnosticTest:
     cost: str
     invasiveness: str
     discriminates_between: tuple[str, ...]
+    duration_class: str = "seconds"
+    expected_outcomes: tuple[str, ...] = ()
+    selection_score: int = 0
+    selection_reason: str | None = None
+    alternatives: tuple[str, ...] = ()
 
 
 @dataclass

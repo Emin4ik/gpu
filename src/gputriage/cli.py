@@ -54,8 +54,14 @@ def _render(result, parsed_files: list[str] | None = None, warnings: list[str] |
             "NEXT BEST TEST",
             f"{test.title}",
             f"Why: {test.purpose}",
-            f"Cost: {test.cost}; invasiveness: {test.invasiveness}",
+            f"Cost: {test.cost}; invasiveness: {test.invasiveness}; duration: {test.duration_class}",
         ])
+        if test.selection_reason:
+            lines.append(f"Selection: {test.selection_reason}")
+        if test.expected_outcomes:
+            lines.append("Expected outcomes:")
+            for outcome in test.expected_outcomes:
+                lines.append(f"  - {outcome}")
         if test.command:
             lines.append(f"Command: {test.command}")
 
