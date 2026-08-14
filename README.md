@@ -31,11 +31,13 @@ The engine uses qualitative hypothesis states (`possible`, `supported`, `probabl
 - DCGM diagnostic/health JSON adapter;
 - NVIDIA `journalctl` / `dmesg` XID/SXID adapter;
 - DCGM local GPU-index reconciliation to durable GPU UUID identity;
-- explicit separation of diagnostic execution failures from hardware-class findings;
-- line-level raw provenance for NVIDIA system events;
+- separation of diagnostic execution failures from hardware-class findings;
+- `/proc/interrupts`, IRQ affinity, and communication-process CPU-affinity evidence;
+- HCA-aware IRQ -> CPU -> communication-process correlation;
+- line/raw provenance across imported evidence;
 - staged evaluation and explicit abstention.
 
-The full roadmap and exit criteria are in [`PLAN.md`](PLAN.md). M0-M6 are implemented at PoC level; **M7 is in progress and P0 (DCGM + NVIDIA system logs) is complete**.
+The full roadmap and exit criteria are in [`PLAN.md`](PLAN.md). **M0-M7 are implemented at PoC level. M8, the frozen blind benchmark, is next.**
 
 ## Automatic identity discovery
 
@@ -56,9 +58,7 @@ Related facts are paired only when their entities match. If the affected workloa
 
 See [`docs/EVIDENCE_MODEL.md`](docs/EVIDENCE_MODEL.md).
 
-## External evidence adapters
-
-M7 now imports two very different evidence sources into the same model:
+## Cross-tool evidence adapters
 
 ### DCGM
 
@@ -73,6 +73,20 @@ Recognized files include `journal.log`, `dmesg.log`, and matching text variants.
 The adapter extracts GPU UUID / PCI mapping plus XID/SXID events and preserves line-level references. When identity is known, an event on an unrelated GPU is filtered out of the current incident.
 
 See [`docs/ADAPTERS.md`](docs/ADAPTERS.md).
+
+### Host IRQ / CPU affinity
+
+Recognized host artifacts include:
+
+- `proc-interrupts.txt`;
+- `irq-affinity.csv`;
+- `process-affinity.csv`.
+
+GPU Triage derives `irq_shares_nccl_cpu` only when it can prove all of the required links: the IRQ is active, it maps to an HCA/NIC on the affected workload path, and an affected-rank communication process has known CPU affinity. When an effective IRQ CPU set is available it is preferred over only the configured allowed set.
+
+That evidence can promote the host CPU/IRQ hypothesis to `probable`; the planner still requests a short CPU/kernel profile for causal confirmation.
+
+See [`docs/HOST_AFFINITY.md`](docs/HOST_AFFINITY.md).
 
 ## Explicit next-test planning
 
@@ -100,6 +114,7 @@ python -m pip install -e '.[dev]'
 gputriage examples/auto_identity_case
 gputriage examples/multidevice_case
 gputriage examples/m7_dcgm_xid_case
+gputriage examples/m7_irq_affinity_case
 ```
 
 ## Design rules
@@ -114,7 +129,14 @@ gputriage examples/m7_dcgm_xid_case
 - cheap/read-only diagnostics are preferred when they provide comparable information;
 - unsupported incident classes should produce abstention or handoff;
 - imported vendor-tool verdicts are evidence, not unquestioned truth;
-- a diagnostic that failed to execute is not treated as a component hardware failure.
+- a diagnostic that failed to execute is not treated as a component hardware failure;
+- IRQ/CPU overlap is not considered causal confirmation by itself.
+
+## Why adapter expansion pauses here
+
+The PoC can now combine GPU/vendor diagnostics, kernel event history, host IRQ/CPU state, PCIe identity, and communication/fabric evidence. The next useful question is not whether another adapter can be written; it is whether the diagnostic planner improves real investigations.
+
+M8 therefore freezes a larger real-incident holdout before GPUd/NCCL Doctor/AICR or additional UI/integrations are added.
 
 ## Scope boundary
 
@@ -133,4 +155,4 @@ GitHub Actions runs tests and replay sets on supported Python versions.
 
 ## Status
 
-Research / proof of concept. APIs, schemas, adapters, and playbooks will change. **Next: M7 P1, raw `/proc/interrupts` + IRQ/process CPU-affinity evidence for the host CPU/IRQ playbook.**
+Research / proof of concept. APIs, schemas, adapters, and playbooks will change. **Next: M8 — freeze and run a real blind incident benchmark before expanding product scope.**
