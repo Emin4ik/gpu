@@ -26,6 +26,18 @@ The engine uses qualitative states instead of invented confidence percentages:
 
 A cause only becomes `confirmed` when confirmation-grade evidence is supplied. If the evidence is insufficient, the correct output is either a discriminating next test or an explicit abstention.
 
+## Roadmap
+
+The project roadmap, completed milestones, exit criteria, and kill/rethink conditions are tracked in [`PLAN.md`](PLAN.md).
+
+The current priority is automatic identity discovery:
+
+```text
+job/rank -> node -> GPU UUID -> PCI BDF -> HCA/NIC
+```
+
+This is more important than adding more diagnostic rules because cross-tool evidence is only causally useful when it can be tied to the affected workload path.
+
 ## Why this exists
 
 Modern AI clusters already have strong specialist tools: DCGM, NCCL diagnostics, GPUd, UFM, Slurm/Kubernetes tooling, Linux diagnostics, storage tools, and more. The gap this project is testing is the workflow between them:
@@ -62,16 +74,38 @@ gputriage ./incident
 
 Recognized v0.1 files:
 
-- `incident.json` or `context.json` — symptom plus high-level workload/identity facts;
-- `lspci.txt` — PCIe capability/current width and speed;
-- `nvidia-smi-q.txt` — clocks, temperature, thermal slowdown, visible ECC facts;
-- `nccl.log` — transport selection, GDR-disable signals, timeout evidence;
-- `ib-counters.txt` — normalized IB/RoCE counters;
-- `baseline/<same-file>` — optional baseline used to derive deltas such as falling GPU clocks or rising fabric errors.
+- `incident.json` or `context.json` - symptom plus high-level workload/identity facts;
+- `lspci.txt` - PCIe capability/current width and speed;
+- `nvidia-smi-q.txt` - clocks, temperature, thermal slowdown, visible ECC facts;
+- `nccl.log` - transport selection, GDR-disable signals, timeout evidence;
+- `ib-counters.txt` - normalized IB/RoCE counters;
+- `baseline/<same-file>` - optional baseline used to derive deltas such as falling GPU clocks or rising fabric errors.
 
 A key design boundary is deliberate: **parsers extract evidence, they do not decide causality.** `lspci` can prove that a device is currently `x8` while its capability is `x16`; the identity/topology layer must separately establish whether that device is actually on the affected job/rank path.
 
 The NCCL parser already extracts transport/timeout/GDR facts. A dedicated NCCL transport-fallback playbook is intentionally deferred until it has its own staged validation cases.
+
+## Identity graph v0.1
+
+`incident.json` can now provide an identity graph plus `affected_entities` and `artifact_entities`.
+
+The graph connects entities such as:
+
+```text
+rank -> node
+rank -> GPU -> PCIe device
+rank -> HCA/NIC
+```
+
+GPU Triage derives shared affected paths and scopes raw hardware evidence to those paths. If the affected ranks use `pcie:0000:c1:00.0`, an `x8` observation from unrelated `pcie:0000:d1:00.0` is ignored instead of being promoted into the diagnosis.
+
+Example:
+
+```bash
+gputriage examples/raw_identity_case
+```
+
+This is intentionally strict when identity context exists: device-specific hardware evidence should be attributable to the affected path before it can influence the diagnosis. Automatic Slurm/GPU/HCA identity discovery is the next milestone.
 
 ## Example reasoning
 
@@ -129,7 +163,7 @@ This is **not a product accuracy claim** because these cases are used during pla
 
 `data/holdout_incidents_v0.1.json` is separated from the development replay. It includes both supported cases and deliberately unsupported incident classes.
 
-Current local result:
+Current local result before the identity checkpoint:
 
 ```text
 2 supported holdout cases
@@ -150,6 +184,7 @@ The holdout is still small and hand-normalized, so these numbers are not a stati
 - Observations and causes are separate objects.
 - Multiple simultaneous causes are allowed.
 - Every diagnostic conclusion must be traceable to evidence.
+- Device-specific evidence must be scoped to the affected identity path when that path is known.
 - A cheap/read-only discriminating test is preferred before an invasive benchmark.
 - Unsupported incident classes should produce an explicit abstention or handoff.
 
