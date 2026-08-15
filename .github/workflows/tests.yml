@@ -68,3 +68,9 @@ jobs:
           assert report['result_state'] == 'needs_evidence'
           assert report['next_best_test']['id'] == 'collect_pcie_link_state'
           PY
+      - name: Upload validated distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: gputriage-0.2.0a1-dist
+          path: dist/*
+          if-no-files-found: error

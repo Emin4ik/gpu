@@ -6,6 +6,8 @@ GPU Triage is an early open-source troubleshooting layer that makes existing inf
 
 > Don't replace your GPU tools. Make them work together.
 
+Current public-alpha candidate: **`0.2.0a1`**.
+
 ```text
 raw artifacts / specialist tools
         → identity graph
@@ -19,37 +21,41 @@ raw artifacts / specialist tools
 
 The engine uses qualitative states (`possible`, `supported`, `probable`, `confirmed`, `rejected`) instead of invented root-cause confidence percentages. A cause becomes `confirmed` only after confirmation-grade evidence.
 
-## CLI alpha
+## Public alpha quickstart
 
-Install the development checkout:
+Development checkout:
 
 ```bash
 python -m pip install -e '.[dev]'
+gputriage --version
 ```
 
-Investigate a local incident bundle:
+Expected version:
+
+```text
+gputriage 0.2.0a1
+```
+
+Run the public sanitized example:
 
 ```bash
-gputriage investigate ./incident
-gputriage investigate ./incident --format json
+gputriage investigate examples/public-alpha/pcie-needs-evidence.json
 ```
 
-Validate input without running diagnosis:
+The example intentionally returns `needs_evidence` and recommends collecting PCIe link state rather than manufacturing a root cause.
+
+For a real local incident bundle:
 
 ```bash
 gputriage validate-bundle ./incident
+gputriage investigate ./incident
+gputriage investigate ./incident --format json
 ```
 
 Export normalized pseudonymized evidence without copying raw artifacts:
 
 ```bash
 gputriage export-sanitized ./incident sanitized.json
-```
-
-A sanitized export can be replayed directly:
-
-```bash
-gputriage investigate sanitized.json --format json
 ```
 
 `investigate` uses explicit shell states:
@@ -63,7 +69,21 @@ gputriage investigate sanitized.json --format json
 
 JSON investigations use `gputriage.report.v1` and [`schemas/report-v1.schema.json`](schemas/report-v1.schema.json). Sanitized exports use [`schemas/sanitized-bundle-v1.schema.json`](schemas/sanitized-bundle-v1.schema.json).
 
-See [`docs/CLI.md`](docs/CLI.md) for the full incident-directory, output and privacy contract.
+See [`docs/CLI.md`](docs/CLI.md) for the operator contract and [`docs/PUBLIC_ALPHA.md`](docs/PUBLIC_ALPHA.md) for the release quickstart.
+
+## Public-alpha packaging
+
+Every CI candidate now:
+
+- builds wheel and sdist;
+- runs `twine check`;
+- installs the built wheel into a clean virtual environment;
+- verifies `gputriage --version`;
+- smoke-tests the public sanitized example;
+- uploads the validated distributions as a CI artifact;
+- keeps the frozen M8.2 benchmark gate mandatory.
+
+A manual [`public-alpha-release`](.github/workflows/release.yml) workflow re-runs tests, the frozen gate, build validation, and clean-wheel install before creating a GitHub **pre-release**. It refuses to replace an existing release and requires the requested tag to match the package version. PyPI publishing is intentionally not configured.
 
 ## Implemented diagnostic layers
 
@@ -109,52 +129,27 @@ All predefined M8.2 PoC gates passed and freeze verification succeeded without p
 
 See [`docs/M8_RESULTS_v0.2.md`](docs/M8_RESULTS_v0.2.md), [`docs/M8_V0_2_SOURCES.md`](docs/M8_V0_2_SOURCES.md), and [`docs/BENCHMARK_V0_2_PROTOCOL.md`](docs/BENCHMARK_V0_2_PROTOCOL.md).
 
-## Evidence model
-
-Evidence is entity-scoped, not a flat key/value dictionary:
-
-```text
-pcie_width @ pcie:0000:c1:00.0 = 16
-pcie_width @ pcie:0000:e1:00.0 = 8
-```
-
-Facts are paired only on the same entity. Unrelated broken hardware is filtered out when the affected workload path is known.
-
-Completed diagnostics can contribute explicit negative results:
-
-```text
-host IRQ hypothesis SUPPORTED
-  → collect IRQ affinity
-  → irq_affinity_clean = true
-  → hypothesis REJECTED
-  → collect_irq_affinity cannot be selected again
-```
-
-## Sanitized export boundary
-
-The default sanitized export is conservative:
-
-- no raw artifact bytes;
-- known graph identities are pseudonymized;
-- `raw_ref` is removed;
-- free-text symptom is omitted unless explicitly requested.
-
-It is **not** a general DLP/secret/PII scanner. Review arbitrary string-valued evidence before public sharing.
-
-## Design rules
+## Evidence and privacy rules
 
 - missing evidence does not make a hypothesis more likely;
 - collected negative evidence is not treated as missing evidence;
 - completed diagnostics are not selected again unless an explicit retest policy says so;
 - parsers/adapters extract facts, not causes;
-- multiple simultaneous causes are allowed;
-- supported conclusions remain traceable to evidence;
 - ambiguous identity mappings are not guessed;
 - unsupported cases abstain rather than manufacture a root cause;
 - vendor-tool verdicts are evidence, not automatic `confirmed` causes;
-- diagnostic execution failure is not hardware failure;
 - frozen benchmark versions are immutable after first evaluation;
 - current CLI diagnosis is offline and performs no SSH/API/upload collection.
+
+Sanitized export copies no raw artifact bytes, removes `raw_ref`, pseudonymizes known graph identities, and omits free-text symptom text by default. It is **not** a general DLP/secret/PII scanner; review arbitrary string-valued evidence before public sharing. See [`SECURITY.md`](SECURITY.md).
+
+## Project policies
+
+- [`LICENSE`](LICENSE) — Apache-2.0
+- [`CHANGELOG.md`](CHANGELOG.md)
+- [`CONTRIBUTING.md`](CONTRIBUTING.md)
+- [`SECURITY.md`](SECURITY.md)
+- [`docs/SCHEMA_COMPATIBILITY.md`](docs/SCHEMA_COMPATIBILITY.md)
 
 ## Development
 
@@ -168,8 +163,8 @@ gputriage-benchmark data/benchmark_holdout_v0.2.json.gz \
   --freeze data/benchmark_holdout_v0.2.freeze.json --enforce-gates
 ```
 
-GitHub Actions runs regression suites and frozen benchmark checks on Python 3.10 and 3.12.
+GitHub Actions runs regression suites and frozen benchmark checks on Python 3.10 and 3.12, plus package build/install smoke tests on Python 3.12.
 
 ## Status
 
-Research / alpha-stage proof of concept. **M8.2 passed the predefined frozen engineering gate and M9 CLI alpha is complete. Next: M10 public-alpha packaging and release hygiene.**
+Research / alpha-stage proof of concept. **M8.2 passed the frozen engineering gate, M9 CLI alpha is complete, and the M10 `0.2.0a1` release candidate is build/install validated. The GitHub tag/pre-release is the remaining publication step before outside-user validation.**

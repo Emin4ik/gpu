@@ -25,25 +25,21 @@ Early versions are not a monitoring daemon, Prometheus/Grafana stack, scheduler,
 - **M6 Diagnostic test planner — DONE (v0.1).** Explicit eligibility, cost, invasiveness, information value and deterministic ranking.
 - **M7 Cross-tool adapters — DONE (v0.1).** DCGM, XID/SXID, `/proc/interrupts`, IRQ/process affinity and HCA-aware correlation.
 - **M8.1 Negative evidence/completed-test memory — DONE.** Negative outcomes weaken/reject hypotheses and completed diagnostics cannot be selected again.
+- **M8.2 Frozen benchmark v0.2 — PASS.** Fresh frozen holdout passed all predefined PoC engineering gates.
 - **M9 CLI alpha — DONE.** Stable offline investigation/validation/report/export contract with golden tests.
+- **M10 public alpha engineering — RELEASE CANDIDATE READY.** `0.2.0a1` package candidate builds, validates, installs cleanly and retains the frozen benchmark gate. Tag/pre-release publication remains pending.
 
 ## M8 frozen benchmark program — PoC gate PASSED
 
-### v0.1 baseline
+The v0.1 baseline exposed abstention and red-herring gaps. Those results remain recorded and were not reused as a blind claim. M8.1 fixed the general negative-evidence/completed-test model, then benchmark v0.2 was independently sourced and frozen before execution.
 
-The first frozen benchmark exposed failures in abstention and red-herring handling. The original result is retained in [`docs/M8_RESULTS_v0.1.md`](docs/M8_RESULTS_v0.1.md) and is not reused as a fresh blind claim.
-
-### M8.2 / benchmark v0.2 — PASS
-
-A new benchmark was sourced after M8.1 and frozen before its first execution:
+M8.2 v0.2:
 
 - 24 scenarios total;
 - 16 public source incidents;
 - 8 adversarial/mutation scenarios;
 - 12 development / 12 frozen holdout;
 - frozen SHA-256: `3fba89e4f644630bf4dd4a6475af33e2215983d6ae59659980a1139bd21e32a0`.
-
-No engine/planner change occurred between freeze and the first run.
 
 | Metric | v0.2 first run | Gate | Result |
 |---|---:|---:|---|
@@ -55,62 +51,61 @@ No engine/planner change occurred between freeze and the first run.
 | Median diagnostic-action reduction | 75% | >= 30% | PASS |
 | Median tool-transition reduction | 100% | >= 50% | PASS |
 
-This is a small, author-curated staged-replay engineering benchmark, not a claim of 100% real-world accuracy. Action/tool reductions are replay proxies and no live multi-node GPU cluster was used.
+This is a small author-curated staged-replay engineering benchmark, not a real-world accuracy claim. No live multi-node GPU cluster was used.
 
 See [`docs/M8_RESULTS_v0.2.md`](docs/M8_RESULTS_v0.2.md), [`docs/M8_V0_2_SOURCES.md`](docs/M8_V0_2_SOURCES.md), and [`docs/BENCHMARK_V0_2_PROTOCOL.md`](docs/BENCHMARK_V0_2_PROTOCOL.md).
 
 ## M9 — CLI alpha: DONE
 
-M9 turns the diagnostic core into an offline operator-facing interface without changing the product into a collector or monitoring service.
-
 Implemented:
 
-1. `gputriage investigate <dir|incident.json>` with `--format text|json`;
-2. backward-compatible positional single-file invocation;
-3. versioned machine-readable `gputriage.report.v1` payload and [`schemas/report-v1.schema.json`](schemas/report-v1.schema.json);
-4. explicit `confirmed`, `needs_evidence`, and `abstain` result states;
-5. stable shell exit codes: `0` confirmed/success, `10` needs evidence, `20` abstain, `2` invalid input/export;
-6. report fields for hypotheses, supporting/contradicting/missing evidence, affected entities, warnings, normalized evidence provenance, next test, alternatives, command template, cost, invasiveness and duration;
-7. `gputriage validate-bundle <dir>` with actionable metadata/ingestion errors and no diagnosis;
-8. `gputriage export-sanitized <dir> <output.json>`;
-9. sanitized export copies no raw artifact bytes, removes `raw_ref`, pseudonymizes known identity-graph identifiers, and omits free-text symptom text by default;
-10. exported normalized evidence can be replayed by `gputriage investigate sanitized.json`;
-11. report and sanitized-bundle JSON schemas;
-12. golden tests for confirmed, needs-evidence, abstention, malformed/empty bundles, legacy input, pseudonymization, replay and no-overwrite behavior;
-13. offline-by-default operation: current CLI performs no SSH/API/upload collection.
+1. `gputriage investigate <dir|incident.json>` with text/JSON output;
+2. versioned `gputriage.report.v1` report contract;
+3. explicit `confirmed`, `needs_evidence`, and `abstain` states with stable exit codes;
+4. `gputriage validate-bundle`;
+5. `gputriage export-sanitized`;
+6. evidence provenance, contradictory/missing evidence, next-test metadata and alternatives;
+7. offline-by-default operation with no SSH/API/upload collection;
+8. golden CLI and sanitization tests.
 
 See [`docs/CLI.md`](docs/CLI.md).
 
-Privacy boundary: sanitized export is a conservative normalized-evidence export, **not** a general DLP/secret/PII scanner. Arbitrary string-valued evidence should still be reviewed before public sharing.
+## M10 — Public alpha: RELEASE CANDIDATE READY
 
-M9 exit criteria are met: supported conclusions retain evidence provenance, unsupported inputs abstain, malformed bundles fail validation, diagnosis requires no network, and Python 3.10/3.12 CI plus the frozen v0.2 gate remain green.
+Candidate version: **`0.2.0a1`**.
 
-## Next work
+Completed engineering work:
 
-### M10 — Public alpha: NEXT
+1. package metadata and `gputriage --version` use the same pre-release version;
+2. wheel and sdist build in CI;
+3. `twine check` validates distribution metadata;
+4. built wheel is installed into a clean virtual environment and smoke-tested;
+5. validated distributions are uploaded as CI artifacts;
+6. Apache-2.0 `LICENSE`, `CHANGELOG.md`, `CONTRIBUTING.md`, and `SECURITY.md` are present;
+7. `docs/PUBLIC_ALPHA.md` provides a compact outside-user quickstart with a sanitized public example;
+8. `docs/SCHEMA_COMPATIBILITY.md` defines v1 compatibility rules independently of package pre-1.0 evolution;
+9. privacy/security boundaries explicitly state that sanitized export is not DLP, secret detection, or guaranteed anonymization;
+10. `.github/workflows/release.yml` is manual-only and refuses tag/version mismatch or replacement of an existing release;
+11. release candidates must pass unit tests, frozen M8.2 `--enforce-gates`, build validation, and clean-wheel installation before GitHub pre-release creation;
+12. PyPI publishing and credentials remain intentionally out of scope.
 
-Goal: make the current CLI alpha installable, understandable and safe for outside users before adding new diagnostic breadth.
+Validation checkpoint on the M10 branch passed Python 3.10/3.12 tests, frozen M8.2 gate, wheel/sdist build, `twine check`, clean-wheel install, version check and public-example smoke test.
 
-P0 release work:
+### Remaining publication step
 
-1. choose and stamp a public alpha version (`0.x` pre-release) consistently in package metadata and CLI `--version`;
-2. verify/build wheel and sdist in CI and install-test the built wheel in a clean environment;
-3. add/verify repository license, changelog and contribution guidance;
-4. publish a compact public quickstart using sanitized example bundles;
-5. add a public schema/version compatibility policy for incident/report/sanitized-bundle formats;
-6. document privacy/security boundaries and what sanitized export does **not** guarantee;
-7. add a release GitHub Actions workflow that builds artifacts and can create a GitHub pre-release when explicitly triggered;
-8. keep PyPI publishing/manual release credentials out of scope unless explicitly requested;
-9. keep the frozen v0.2 gate mandatory on release candidates;
-10. create the first tagged public alpha only after package-install smoke tests are green.
+Create the first GitHub tag/pre-release `v0.2.0a1` by explicitly running the checked-in `public-alpha-release` workflow from the validated release-candidate commit. Publication should not weaken or bypass the same frozen gate.
 
-P1 after first outside usage:
+The current connector/runtime cannot dispatch or create a GitHub release directly, so the repository records the candidate as **ready, not yet published**.
 
-- improve bundle collection helpers from actual user friction;
-- add adapters only for benchmark/user cases that demonstrate missing value;
-- consider Kubernetes identity and an adapter/plugin SDK;
-- optional static HTML report;
-- build a new independent benchmark version before making stronger quality claims after material engine changes.
+## After publication — outside-user validation
+
+The main remaining uncertainty is no longer package mechanics; it is external usefulness. Priorities after the first pre-release:
+
+- have real operators run sanitized or local incident bundles;
+- record where evidence collection, identity mapping, next-test wording, or abstention is confusing;
+- add adapters/playbooks only for demonstrated user/benchmark gaps;
+- measure whether the tool reduces diagnostic actions and tool transitions in real workflows;
+- create a new independent benchmark version before stronger quality claims after material model changes.
 
 Do **not** prioritize before external feedback:
 
@@ -148,8 +143,10 @@ job → rank → node → GPU → PCIe → HCA/fabric
  new evidence → strengthen / weaken / reject / confirm
             ↓
    versioned CLI/report contract
+            ↓
+ validated wheel/sdist + manual pre-release gate
 ```
 
 ## Current decision
 
-M8.2 passed the predefined PoC engineering gate and M9 has stabilized the offline operator contract. The next milestone is **M10 public alpha packaging/release hygiene**, not more diagnosis rules. The main remaining uncertainty is now external usefulness: whether real operators find the workflow materially faster and clearer on their own incident artifacts.
+M10 engineering work has produced a validated `0.2.0a1` release candidate without adding diagnostic breadth or weakening the frozen benchmark. The next irreversible step is publishing the GitHub pre-release; after that, development should prioritize real operator feedback over speculative features.
