@@ -19,10 +19,17 @@ jobs:
       - run: pytest -q
       - run: gputriage-eval data/staged_incidents_v0.1.json
       - run: gputriage-eval data/holdout_incidents_v0.1.json
-      - name: M8 development benchmark safety
+      - name: M8 v0.1 development benchmark safety
         run: gputriage-benchmark data/benchmark_dev_v0.1.json.gz --enforce-safety
-      - name: M8 frozen holdout benchmark safety
+      - name: M8 v0.1 frozen holdout safety
         run: >-
           gputriage-benchmark data/benchmark_holdout_v0.1.json.gz
           --freeze data/benchmark_holdout_v0.1.freeze.json
+          --enforce-safety
+      - name: M8 v0.2 development benchmark safety
+        run: gputriage-benchmark data/benchmark_dev_v0.2.json.gz --enforce-safety
+      - name: M8 v0.2 frozen holdout first-run safety
+        run: >-
+          gputriage-benchmark data/benchmark_holdout_v0.2.json.gz
+          --freeze data/benchmark_holdout_v0.2.freeze.json
           --enforce-safety
