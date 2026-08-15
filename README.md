@@ -19,7 +19,53 @@ raw artifacts / specialist tools
 
 The engine uses qualitative states (`possible`, `supported`, `probable`, `confirmed`, `rejected`) instead of invented root-cause confidence percentages. A cause becomes `confirmed` only after confirmation-grade evidence.
 
-## Implemented PoC layers
+## CLI alpha
+
+Install the development checkout:
+
+```bash
+python -m pip install -e '.[dev]'
+```
+
+Investigate a local incident bundle:
+
+```bash
+gputriage investigate ./incident
+gputriage investigate ./incident --format json
+```
+
+Validate input without running diagnosis:
+
+```bash
+gputriage validate-bundle ./incident
+```
+
+Export normalized pseudonymized evidence without copying raw artifacts:
+
+```bash
+gputriage export-sanitized ./incident sanitized.json
+```
+
+A sanitized export can be replayed directly:
+
+```bash
+gputriage investigate sanitized.json --format json
+```
+
+`investigate` uses explicit shell states:
+
+| Exit | Result state |
+|---:|---|
+| `0` | confirmed |
+| `10` | needs_evidence |
+| `20` | abstain |
+| `2` | invalid input/export |
+
+JSON investigations use `gputriage.report.v1` and [`schemas/report-v1.schema.json`](schemas/report-v1.schema.json). Sanitized exports use [`schemas/sanitized-bundle-v1.schema.json`](schemas/sanitized-bundle-v1.schema.json).
+
+See [`docs/CLI.md`](docs/CLI.md) for the full incident-directory, output and privacy contract.
+
+## Implemented diagnostic layers
 
 - deterministic playbooks for PCIe, physical fabric/HCA, thermal/frequency, software/config, CPU/IRQ, storage/data starvation, and collective-work invariant failures;
 - raw `lspci`, `nvidia-smi`, NCCL, and IB/RoCE ingestion;
@@ -30,6 +76,7 @@ The engine uses qualitative states (`possible`, `supported`, `probable`, `confir
 - explicit diagnostic-test registry and deterministic next-test ranking;
 - DCGM diagnostic/health and NVIDIA XID/SXID adapters;
 - `/proc/interrupts`, IRQ affinity, and communication-process CPU-affinity evidence;
+- versioned text/JSON CLI reports, bundle validation and sanitized normalized export;
 - staged replay, explicit abstention, and versioned frozen benchmark gates.
 
 See [`PLAN.md`](PLAN.md) for the roadmap.
@@ -83,25 +130,16 @@ host IRQ hypothesis SUPPORTED
   → collect_irq_affinity cannot be selected again
 ```
 
-## Try it
+## Sanitized export boundary
 
-```bash
-python -m pip install -e '.[dev]'
+The default sanitized export is conservative:
 
-gputriage examples/auto_identity_case
-gputriage examples/multidevice_case
-gputriage examples/m7_dcgm_xid_case
-gputriage examples/m7_irq_affinity_case
-```
+- no raw artifact bytes;
+- known graph identities are pseudonymized;
+- `raw_ref` is removed;
+- free-text symptom is omitted unless explicitly requested.
 
-Run the current frozen benchmark regression:
-
-```bash
-gputriage-benchmark \
-  data/benchmark_holdout_v0.2.json.gz \
-  --freeze data/benchmark_holdout_v0.2.freeze.json \
-  --enforce-gates
-```
+It is **not** a general DLP/secret/PII scanner. Review arbitrary string-valued evidence before public sharing.
 
 ## Design rules
 
@@ -115,7 +153,8 @@ gputriage-benchmark \
 - unsupported cases abstain rather than manufacture a root cause;
 - vendor-tool verdicts are evidence, not automatic `confirmed` causes;
 - diagnostic execution failure is not hardware failure;
-- frozen benchmark versions are immutable after first evaluation.
+- frozen benchmark versions are immutable after first evaluation;
+- current CLI diagnosis is offline and performs no SSH/API/upload collection.
 
 ## Development
 
@@ -133,4 +172,4 @@ GitHub Actions runs regression suites and frozen benchmark checks on Python 3.10
 
 ## Status
 
-Research / proof of concept. **M8.2 passed the predefined frozen engineering gate. M9 CLI alpha is the next milestone.**
+Research / alpha-stage proof of concept. **M8.2 passed the predefined frozen engineering gate and M9 CLI alpha is complete. Next: M10 public-alpha packaging and release hygiene.**
