@@ -22,6 +22,7 @@ class DiagnosticTestSpec:
     expected_outcomes: tuple[str, ...]
     require_missing_evidence: bool = False
     blocked_by_true: tuple[str, ...] = ()
+    completion_keys: tuple[str, ...] = ()
 
 
 STATUS_BONUS = {
@@ -71,7 +72,7 @@ TEST_REGISTRY: tuple[DiagnosticTestSpec, ...] = (
             "targeted validation reproduces degradation -> confirm PCIe path hypothesis",
             "targeted validation is healthy -> weaken PCIe path hypothesis",
         ),
-        blocked_by_true=("targeted_nccl_validation_failed",),
+        completion_keys=("targeted_nccl_validation_failed", "targeted_nccl_validation_healthy"),
     ),
     DiagnosticTestSpec(
         id="collect_fabric_counters",
@@ -90,6 +91,7 @@ TEST_REGISTRY: tuple[DiagnosticTestSpec, ...] = (
             "counters remain clean -> weaken physical fabric hypothesis",
         ),
         require_missing_evidence=True,
+        completion_keys=("fabric_error_counters_rising", "fabric_counters_clean"),
     ),
     DiagnosticTestSpec(
         id="inspect_fabric_port",
@@ -107,7 +109,7 @@ TEST_REGISTRY: tuple[DiagnosticTestSpec, ...] = (
             "mapped port shows physical errors -> confirm/localize fabric path",
             "mapped port is clean -> search upstream congestion or alternate cause",
         ),
-        blocked_by_true=("faulty_fabric_port_confirmed",),
+        completion_keys=("faulty_fabric_port_confirmed", "fabric_port_clean"),
     ),
     DiagnosticTestSpec(
         id="collect_gpu_clock_thermal_state",
@@ -126,6 +128,7 @@ TEST_REGISTRY: tuple[DiagnosticTestSpec, ...] = (
             "clock/thermal state matches peers -> weaken thermal hypothesis",
         ),
         require_missing_evidence=True,
+        completion_keys=("thermal_throttle_reason", "gpu_clock_thermal_state_matches_peers"),
     ),
     DiagnosticTestSpec(
         id="validate_thermal_recovery",
@@ -143,7 +146,7 @@ TEST_REGISTRY: tuple[DiagnosticTestSpec, ...] = (
             "performance recovers -> confirm thermal cause",
             "performance remains degraded -> keep alternative causes active",
         ),
-        blocked_by_true=("thermal_fix_restored_performance",),
+        completion_keys=("thermal_fix_restored_performance", "thermal_fix_did_not_restore_performance"),
     ),
     DiagnosticTestSpec(
         id="collect_irq_affinity",
@@ -162,6 +165,7 @@ TEST_REGISTRY: tuple[DiagnosticTestSpec, ...] = (
             "affinity is clean -> weaken IRQ-interference hypothesis",
         ),
         require_missing_evidence=True,
+        completion_keys=("irq_shares_nccl_cpu", "irq_affinity_clean"),
     ),
     DiagnosticTestSpec(
         id="short_cpu_profile",
@@ -179,7 +183,7 @@ TEST_REGISTRY: tuple[DiagnosticTestSpec, ...] = (
             "profile shows softirq/preemption on communication CPU -> confirm host cause",
             "profile does not show host contention -> search alternate cause",
         ),
-        blocked_by_true=("cpu_profile_confirms_softirq_preemption",),
+        completion_keys=("cpu_profile_confirms_softirq_preemption", "cpu_profile_no_softirq_preemption"),
     ),
     DiagnosticTestSpec(
         id="collect_storage_client_profile",
@@ -198,6 +202,7 @@ TEST_REGISTRY: tuple[DiagnosticTestSpec, ...] = (
             "storage path is healthy -> weaken storage/data hypothesis",
         ),
         require_missing_evidence=True,
+        completion_keys=("storage_client_cpu_elevated", "storage_client_profile_healthy"),
     ),
     DiagnosticTestSpec(
         id="controlled_data_path_ab",
@@ -215,7 +220,7 @@ TEST_REGISTRY: tuple[DiagnosticTestSpec, ...] = (
             "corrected data path restores throughput -> confirm storage/data cause",
             "no recovery -> keep alternate causes active",
         ),
-        blocked_by_true=("storage_or_loader_fix_restored_performance",),
+        completion_keys=("storage_or_loader_fix_restored_performance", "data_path_ab_did_not_restore_performance"),
     ),
     DiagnosticTestSpec(
         id="compare_rank_work_invariants",
@@ -234,6 +239,7 @@ TEST_REGISTRY: tuple[DiagnosticTestSpec, ...] = (
             "rank work is identical -> weaken invariant cause",
         ),
         require_missing_evidence=True,
+        completion_keys=("per_rank_work_counts_differ", "per_rank_work_counts_equal"),
     ),
     DiagnosticTestSpec(
         id="validate_invariant_fix",
@@ -251,7 +257,7 @@ TEST_REGISTRY: tuple[DiagnosticTestSpec, ...] = (
             "full run completes cleanly -> confirm invariant cause",
             "hang persists -> keep communication/runtime alternatives active",
         ),
-        blocked_by_true=("invariant_fix_restored_training",),
+        completion_keys=("invariant_fix_restored_training", "invariant_fix_did_not_restore_training"),
     ),
     DiagnosticTestSpec(
         id="controlled_rollback_ab",
@@ -269,7 +275,7 @@ TEST_REGISTRY: tuple[DiagnosticTestSpec, ...] = (
             "rollback restores throughput -> confirm software/config cause",
             "rollback does not help -> weaken software/config hypothesis",
         ),
-        blocked_by_true=("rollback_restored_performance",),
+        completion_keys=("rollback_restored_performance", "rollback_did_not_restore_performance"),
     ),
 )
 
@@ -279,6 +285,10 @@ def _eligible(spec: DiagnosticTestSpec, hypotheses: dict[str, Hypothesis], facts
     if not owner or owner.status not in spec.trigger_statuses:
         return False
     if spec.require_missing_evidence and not owner.missing_evidence:
+        return False
+    if facts.any_true(f"test_completed.{spec.id}"):
+        return False
+    if any(facts.has(key) for key in spec.completion_keys):
         return False
     if any(facts.any_true(key) for key in spec.blocked_by_true):
         return False
@@ -308,12 +318,7 @@ def _score(spec: DiagnosticTestSpec, hypotheses: dict[str, Hypothesis]) -> tuple
 def rank_candidate_specs(
     candidates: list[DiagnosticTestSpec], hypotheses: list[Hypothesis]
 ) -> list[tuple[DiagnosticTestSpec, int, int]]:
-    """Rank already-eligible test specs deterministically.
-
-    This is intentionally a utility function so the ranking policy can be
-    tested independently of the diagnostic playbooks that make tests eligible.
-    """
-
+    """Rank already-eligible test specs deterministically."""
     by_id = {hypothesis.id: hypothesis for hypothesis in hypotheses}
     scored = [(spec, *_score(spec, by_id)) for spec in candidates]
     return sorted(scored, key=lambda item: (-item[1], item[0].id))
