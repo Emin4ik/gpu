@@ -1,6 +1,6 @@
 # GPU Triage Development Plan
 
-Last updated: 2026-08-14
+Last updated: 2026-08-15
 
 ## Product thesis
 
@@ -84,45 +84,69 @@ First frozen holdout result:
 
 Safety is green: frozen checksum verified and no premature `confirmed` verdicts occurred. The **full M8 project gate is not passed**, because abstention and red-herring/forbidden-hypothesis handling missed their thresholds.
 
-The first-run gaps are deliberately retained as benchmark findings:
-
-1. known-clean IRQ affinity still leaves `host_cpu_irq_interference` supported and can cause redundant `collect_irq_affinity`;
-2. known-equal per-rank work can still trigger `compare_rank_work_invariants`;
-3. a failed rollback can still trigger `controlled_rollback_ab` again.
-
 See [`docs/BENCHMARK.md`](docs/BENCHMARK.md) and [`docs/M8_RESULTS_v0.1.md`](docs/M8_RESULTS_v0.1.md).
+
+### M8.1 — Negative evidence and completed-test memory: DONE
+
+M8.1 fixes the general model behind the first benchmark gaps without editing the frozen `v0.1` corpus.
+
+Implemented:
+
+- `EvidenceIndex.has(key)` so “not collected” is distinct from “collected and clean/negative”;
+- per-diagnostic `completion_keys`;
+- generic `test_completed.<diagnostic_id> = true` memory that blocks re-selection without inventing an outcome;
+- negative controlled-test outcomes that weaken or reject hypotheses;
+- explicit negative handling for IRQ affinity, CPU profile, rank-work invariants, software rollback, targeted NCCL validation, storage/data-path A/B, thermal recovery, fabric validation and related checks;
+- planner behavior that does not repeat a diagnostic whose question has already been answered;
+- new development regressions for clean IRQ affinity, equal per-rank work, failed rollback, healthy targeted NCCL, generic completed-test memory and failed data-path A/B.
+
+Key state transitions now include:
+
+```text
+supported/probable hypothesis
+        +
+negative diagnostic result
+        ↓
+possible / rejected
+        +
+test marked complete
+        ↓
+planner cannot select the same diagnostic again
+```
+
+Full CI remains green on Python 3.10 and 3.12, including unit tests, staged replay, structural holdout replay, M8 development safety and frozen `v0.1` checksum/safety validation.
+
+Important benchmark discipline: the `v0.1` first-run scores remain the recorded baseline. After seeing them, `v0.1` is no longer a blind evaluation set for future model-quality claims.
+
+See [`docs/M8_1_NEGATIVE_EVIDENCE.md`](docs/M8_1_NEGATIVE_EVIDENCE.md).
 
 ## Next work
 
-### M8.1 — Negative evidence and completed-test memory: NEXT
+### M8.2 — New independently frozen benchmark v0.2: NEXT
 
-Do **not** tune against the frozen v0.1 holdout. Fix the general diagnostic model using new development cases only.
+Goal: obtain a fresh measurement after M8.1 without reusing the already-observed v0.1 answers.
 
 Build:
 
-1. explicit negative/contradicting observations for completed diagnostics, e.g. clean IRQ affinity, equal rank work, healthy targeted validation, failed rollback, clean fabric/PCIe checks;
-2. completed-test/result memory so a diagnostic that already answered its question cannot be selected again;
-3. hypothesis weakening/rejection rules driven by negative controlled-test outcomes;
-4. planner prerequisites that distinguish “missing evidence” from “evidence already collected and negative”;
-5. new development mutations for redundant-test prevention and hypothesis reversal;
-6. deterministic state-transition tests for `supported -> possible/rejected` where negative evidence warrants it.
+1. source additional public incidents not used to design the M8.1 changes;
+2. include supported, unsupported, red-herring, wrong-device, multi-cause and negative-test scenarios;
+3. keep the answer rubric separate from engine development;
+4. create a new development/frozen split;
+5. SHA-256 freeze the new holdout before any run;
+6. run the frozen split once and record every pass/fail gate;
+7. advance to M9 only if the full M8 gate passes.
 
-Exit criteria:
+M8.2 gates remain:
 
-- all new development regressions pass;
-- no change to `benchmark_holdout_v0.1` or its freeze hash;
-- old unit/staged regressions remain green;
-- no new path to premature confirmation.
+- Domain Recall@3 >= 75%;
+- useful next-test 2/2 rate >= 70%;
+- premature confirmation <= 5%, with a target of 0%;
+- abstention accuracy >= 90%;
+- forbidden/red-herring hypothesis error <= 5%;
+- median diagnostic-action reduction >= 30%;
+- median tool-transition reduction >= 50%.
 
-### M8.2 — New independently frozen benchmark v0.2
-
-Only after M8.1 stabilizes:
-
-1. add or replace public incidents without exposing the new answer rubric to rule tuning;
-2. build a new holdout split;
-3. freeze it under a new SHA-256 before running it;
-4. run once and record all pass/fail gates;
-5. advance to M9 only if the full gate passes.
+If v0.2 misses the gate, record the miss and continue diagnosis-model work under a new development set. Do not rewrite the frozen v0.2 holdout.
 
 ### M9 — CLI alpha: BLOCKED BY M8 GATE
 
@@ -157,8 +181,8 @@ job -> rank -> node -> GPU -> PCIe -> HCA/fabric
             v
    entity-scoped evidence
    + positive evidence
-   + negative evidence      <- M8.1
-   + completed test results <- M8.1
+   + negative evidence
+   + completed test results
             |
             v
        affected-path filter
@@ -181,4 +205,4 @@ job -> rank -> node -> GPU -> PCIe -> HCA/fabric
 
 ## Current decision
 
-The v0.1 benchmark gives enough signal to continue the project, but not enough to advance to CLI alpha. The next engineering priority is **better handling of negative evidence and already-completed diagnostics**, followed by a fresh independently frozen v0.2 benchmark.
+M8.1 is complete. The project still has enough signal to continue, but M9 remains blocked until a **new independently frozen M8.2 benchmark** passes the full gate. The immediate next task is therefore benchmark v0.2 construction and freeze, not more adapters or UI.
