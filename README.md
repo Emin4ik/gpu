@@ -25,6 +25,8 @@ The engine uses qualitative hypothesis states (`possible`, `supported`, `probabl
 - raw `lspci`, `nvidia-smi`, NCCL, and IB/RoCE ingestion;
 - Slurm/GPU/HCA identity discovery and rank -> node -> GPU UUID -> PCI BDF -> HCA mapping;
 - multi-device evidence storage and affected-path filtering;
+- positive, negative, and contradictory diagnostic evidence;
+- explicit completed-test memory so already-answered diagnostics are not selected again;
 - explicit diagnostic-test registry and deterministic next-test ranking;
 - DCGM diagnostic/health adapter;
 - NVIDIA XID/SXID history adapter;
@@ -36,7 +38,7 @@ The complete roadmap is in [`PLAN.md`](PLAN.md).
 
 ## M8 frozen benchmark v0.1
 
-M8 now contains **30 staged scenarios**: 21 public source incidents plus 9 adversarial/mutation scenarios. The split is 18 development / 12 frozen holdout. The holdout was SHA-256 frozen before its first run.
+M8 contains **30 staged scenarios**: 21 public source incidents plus 9 adversarial/mutation scenarios. The split is 18 development / 12 frozen holdout. The holdout was SHA-256 frozen before its first run.
 
 First frozen-run summary:
 
@@ -52,9 +54,29 @@ First frozen-run summary:
 
 This is an **engineering replay benchmark, not an accuracy claim and not real-cluster validation**. Action/tool reductions are curated proxies from published investigation sequences.
 
-The result is intentionally not presented as a clean win: M8 exposed three concrete weaknesses around clean IRQ evidence, already-known equal rank work, and a previously failed rollback. Therefore **M9 CLI alpha remains blocked** until the general model handles negative evidence and completed diagnostics, followed by a newly frozen v0.2 benchmark.
+The first run exposed structural weaknesses around clean IRQ evidence, already-known equal rank work, and a previously failed rollback. Those findings drove the general M8.1 negative-evidence/completed-test model, but the original `v0.1` result remains the recorded baseline and is not reused as a new blind evaluation.
 
-See [`docs/BENCHMARK.md`](docs/BENCHMARK.md) for methodology and [`docs/M8_RESULTS_v0.1.md`](docs/M8_RESULTS_v0.1.md) for the first-run report.
+See [`docs/BENCHMARK.md`](docs/BENCHMARK.md), [`docs/M8_RESULTS_v0.1.md`](docs/M8_RESULTS_v0.1.md), and [`docs/M8_1_NEGATIVE_EVIDENCE.md`](docs/M8_1_NEGATIVE_EVIDENCE.md).
+
+## Negative evidence and completed tests
+
+M8.1 distinguishes three states that used to be conflated:
+
+```text
+not collected
+collected + supports hypothesis
+collected + contradicts hypothesis
+```
+
+Diagnostics can define outcome-specific `completion_keys`, and any diagnostic can also be marked complete with:
+
+```text
+test_completed.<diagnostic_test_id> = true
+```
+
+The generic completed marker prevents re-selection but never invents a positive or negative result. Outcome evidence is what changes a hypothesis state.
+
+Examples now handled explicitly include clean IRQ affinity, equal per-rank work, failed rollback, healthy targeted NCCL validation, negative thermal/CPU/fabric validations, and a data-path A/B that does not restore performance.
 
 ## Automatic identity discovery
 
@@ -105,6 +127,8 @@ gputriage-benchmark \
 ## Design rules
 
 - missing evidence does not make a hypothesis more likely;
+- collected negative evidence is not treated as missing evidence;
+- completed diagnostics are not selected again unless a future explicit retest policy says so;
 - parsers/adapters extract facts, not causes;
 - multiple simultaneous causes are allowed;
 - conclusions remain traceable to evidence;
@@ -130,4 +154,4 @@ GitHub Actions runs the regression suites and M8 safety gate on Python 3.10 and 
 
 ## Status
 
-Research / proof of concept. **M0-M7 are complete at PoC level; M8 v0.1 baseline is recorded but the full gate did not pass. Next: M8.1 negative-evidence and redundant-test remediation, then a newly frozen M8 v0.2.**
+Research / proof of concept. **M0-M7 and M8.1 are complete at PoC level; M8 v0.1 baseline remains recorded but did not pass the full gate. Next: construct and freeze a new independent M8.2 benchmark v0.2. M9 CLI alpha stays blocked until that gate passes.**
