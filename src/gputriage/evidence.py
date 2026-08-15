@@ -28,6 +28,10 @@ class EvidenceIndex:
     def all(self, key: str) -> list[Observation]:
         return list(self._by_key.get(key, ()))
 
+    def has(self, key: str) -> bool:
+        """Return whether a fact was collected, regardless of its value."""
+        return key in self._by_key
+
     def any_true(self, key: str) -> bool:
         return any(observation.value is True for observation in self._by_key.get(key, ()))
 
