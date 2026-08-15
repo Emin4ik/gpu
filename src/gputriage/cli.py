@@ -10,6 +10,7 @@ from .bundle import BundleValidation, validate_bundle
 from .engine import investigate
 from .models import Observation
 from .reporting import build_report, render_text
+from .sanitize import export_sanitized_bundle
 
 EXIT_CONFIRMED = 0
 EXIT_INVALID_BUNDLE = 2
@@ -130,6 +131,50 @@ def _run_validate(path: Path, output_format: str) -> int:
     return EXIT_CONFIRMED if validation.valid else EXIT_INVALID_BUNDLE
 
 
+def _run_export_sanitized(
+    bundle: Path,
+    output: Path,
+    *,
+    include_symptom: bool,
+    force: bool,
+    output_format: str,
+) -> int:
+    try:
+        payload = export_sanitized_bundle(
+            bundle,
+            output,
+            include_symptom=include_symptom,
+            force=force,
+        )
+    except (ValueError, FileExistsError, OSError) as exc:
+        error = {
+            "schema_version": "gputriage.error.v1",
+            "error": str(exc),
+            "path": str(bundle),
+        }
+        _emit(error, output_format, text_renderer=lambda value: f"GPU TRIAGE EXPORT\nERROR: {value['error']}")
+        return EXIT_INVALID_BUNDLE
+
+    summary = {
+        "schema_version": "gputriage.export-result.v1",
+        "output": str(output),
+        "observation_count": len(payload["observations"]),
+        "raw_artifacts_included": False,
+        "free_text_symptom_included": bool(payload["sanitization"]["free_text_symptom_included"]),
+    }
+    _emit(
+        summary,
+        output_format,
+        text_renderer=lambda value: (
+            "GPU TRIAGE SANITIZED EXPORT\n"
+            f"Output: {value['output']}\n"
+            f"Observations: {value['observation_count']}\n"
+            "Raw artifacts included: no"
+        ),
+    )
+    return EXIT_CONFIRMED
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Evidence-first AI/GPU infrastructure diagnostic planner")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -141,12 +186,23 @@ def _parser() -> argparse.ArgumentParser:
     validate_parser = subparsers.add_parser("validate-bundle", help="Validate an incident directory without diagnosing it")
     validate_parser.add_argument("bundle", type=Path, help="Incident bundle directory")
     validate_parser.add_argument("--format", choices=("text", "json"), default="text", dest="output_format")
+
+    export_parser = subparsers.add_parser(
+        "export-sanitized",
+        help="Export normalized pseudonymized evidence without copying raw artifacts",
+    )
+    export_parser.add_argument("bundle", type=Path, help="Source incident bundle directory")
+    export_parser.add_argument("output", type=Path, help="Destination JSON file")
+    export_parser.add_argument("--include-symptom", action="store_true", help="Include best-effort pseudonymized symptom text")
+    export_parser.add_argument("--force", action="store_true", help="Overwrite an existing destination")
+    export_parser.add_argument("--format", choices=("text", "json"), default="text", dest="output_format")
     return parser
 
 
 def _normalize_legacy_argv(argv: Sequence[str]) -> list[str]:
     args = list(argv)
-    if args and args[0] not in {"investigate", "validate-bundle", "-h", "--help"}:
+    commands = {"investigate", "validate-bundle", "export-sanitized", "-h", "--help"}
+    if args and args[0] not in commands:
         return ["investigate", *args]
     return args
 
@@ -158,6 +214,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_investigate(args.incident, args.output_format)
     if args.command == "validate-bundle":
         return _run_validate(args.bundle, args.output_format)
+    if args.command == "export-sanitized":
+        return _run_export_sanitized(
+            args.bundle,
+            args.output,
+            include_symptom=args.include_symptom,
+            force=args.force,
+            output_format=args.output_format,
+        )
     raise AssertionError(f"unhandled command: {args.command}")
 
 
