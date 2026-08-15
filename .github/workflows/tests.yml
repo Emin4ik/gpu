@@ -28,8 +28,8 @@ jobs:
           --enforce-safety
       - name: M8 v0.2 development benchmark safety
         run: gputriage-benchmark data/benchmark_dev_v0.2.json.gz --enforce-safety
-      - name: M8 v0.2 frozen holdout first-run safety
+      - name: M8 v0.2 frozen holdout gate
         run: >-
           gputriage-benchmark data/benchmark_holdout_v0.2.json.gz
           --freeze data/benchmark_holdout_v0.2.freeze.json
-          --enforce-safety
+          --enforce-gates

@@ -2,87 +2,65 @@
 
 **Evidence-first diagnostic planning for AI/GPU infrastructure.**
 
-GPU Triage is an early proof of concept for a troubleshooting layer that makes existing infrastructure tools work together instead of replacing them.
+GPU Triage is an early open-source troubleshooting layer that makes existing infrastructure tools work together instead of replacing them.
 
 > Don't replace your GPU tools. Make them work together.
 
 ```text
 raw artifacts / specialist tools
-        -> identity graph
-        -> entity-scoped evidence
-        -> hypotheses
-        -> eligible diagnostics
-        -> transparent test ranking
-        -> next best test or abstention
-        -> confirmation / rejection
+        → identity graph
+        → entity-scoped evidence
+        → hypotheses
+        → eligible diagnostics
+        → transparent test ranking
+        → next best test or abstention
+        → confirmation / rejection
 ```
 
-The engine uses qualitative hypothesis states (`possible`, `supported`, `probable`, `confirmed`, `rejected`) instead of invented root-cause confidence percentages. A root cause only becomes `confirmed` after confirmation-grade evidence.
+The engine uses qualitative states (`possible`, `supported`, `probable`, `confirmed`, `rejected`) instead of invented root-cause confidence percentages. A cause becomes `confirmed` only after confirmation-grade evidence.
 
 ## Implemented PoC layers
 
 - deterministic playbooks for PCIe, physical fabric/HCA, thermal/frequency, software/config, CPU/IRQ, storage/data starvation, and collective-work invariant failures;
 - raw `lspci`, `nvidia-smi`, NCCL, and IB/RoCE ingestion;
-- Slurm/GPU/HCA identity discovery and rank -> node -> GPU UUID -> PCI BDF -> HCA mapping;
+- Slurm/GPU/HCA identity discovery and rank → node → GPU UUID → PCI BDF → HCA mapping;
 - multi-device evidence storage and affected-path filtering;
 - positive, negative, and contradictory diagnostic evidence;
-- explicit completed-test memory so already-answered diagnostics are not selected again;
+- completed-test memory so already-answered diagnostics are not selected again;
 - explicit diagnostic-test registry and deterministic next-test ranking;
-- DCGM diagnostic/health adapter;
-- NVIDIA XID/SXID history adapter;
+- DCGM diagnostic/health and NVIDIA XID/SXID adapters;
 - `/proc/interrupts`, IRQ affinity, and communication-process CPU-affinity evidence;
-- HCA-aware IRQ -> CPU -> process correlation;
-- staged replay, abstention, and a frozen M8 benchmark.
+- staged replay, explicit abstention, and versioned frozen benchmark gates.
 
-The complete roadmap is in [`PLAN.md`](PLAN.md).
+See [`PLAN.md`](PLAN.md) for the roadmap.
 
-## M8 frozen benchmark v0.1
+## Frozen benchmark v0.2
 
-M8 contains **30 staged scenarios**: 21 public source incidents plus 9 adversarial/mutation scenarios. The split is 18 development / 12 frozen holdout. The holdout was SHA-256 frozen before its first run.
+The original v0.1 benchmark exposed gaps in negative-evidence handling. M8.1 fixed the general model, then a fresh `v0.2` benchmark was sourced and frozen before execution:
 
-First frozen-run summary:
+- 24 staged scenarios;
+- 16 public source incidents;
+- 8 adversarial/mutation scenarios;
+- 12 development / 12 frozen holdout;
+- frozen SHA-256: `3fba89e4f644630bf4dd4a6475af33e2215983d6ae59659980a1139bd21e32a0`.
+
+First frozen v0.2 run:
 
 | Metric | Result |
 |---|---:|
-| Domain Recall@3 | 100% (9/9) |
-| Directly useful next test (2/2) | 81.8% (9/11) |
-| Premature confirmation | 0% |
-| Abstention accuracy | **80% — below 90% gate** |
-| Forbidden-hypothesis error | **25% — above 5% gate** |
-| Median diagnostic-action reduction | 33.3% |
-| Median tool-transition reduction | 66.7% |
+| Domain Recall@3 | 100% (10/10) |
+| Directly useful next test (2/2) | 100% (10/10) |
+| Premature confirmation | 0% (0/22 stages) |
+| Abstention accuracy | 100% (7/7) |
+| Forbidden/red-herring hypothesis error | 0% (0/10) |
+| Median diagnostic-action reduction | 75% |
+| Median tool-transition reduction | 100% |
 
-This is an **engineering replay benchmark, not an accuracy claim and not real-cluster validation**. Action/tool reductions are curated proxies from published investigation sequences.
+All predefined M8.2 PoC gates passed and freeze verification succeeded without post-freeze engine tuning.
 
-The first run exposed structural weaknesses around clean IRQ evidence, already-known equal rank work, and a previously failed rollback. Those findings drove the general M8.1 negative-evidence/completed-test model, but the original `v0.1` result remains the recorded baseline and is not reused as a new blind evaluation.
+**This is an engineering staged-replay benchmark, not a claim of 100% real-world diagnostic accuracy.** The holdout is small and author-curated, action/tool reductions are replay proxies, and no live multi-node GPU cluster was used.
 
-See [`docs/BENCHMARK.md`](docs/BENCHMARK.md), [`docs/M8_RESULTS_v0.1.md`](docs/M8_RESULTS_v0.1.md), and [`docs/M8_1_NEGATIVE_EVIDENCE.md`](docs/M8_1_NEGATIVE_EVIDENCE.md).
-
-## Negative evidence and completed tests
-
-M8.1 distinguishes three states that used to be conflated:
-
-```text
-not collected
-collected + supports hypothesis
-collected + contradicts hypothesis
-```
-
-Diagnostics can define outcome-specific `completion_keys`, and any diagnostic can also be marked complete with:
-
-```text
-test_completed.<diagnostic_test_id> = true
-```
-
-The generic completed marker prevents re-selection but never invents a positive or negative result. Outcome evidence is what changes a hypothesis state.
-
-Examples now handled explicitly include clean IRQ affinity, equal per-rank work, failed rollback, healthy targeted NCCL validation, negative thermal/CPU/fabric validations, and a data-path A/B that does not restore performance.
-
-## Automatic identity discovery
-
-Supported discovery artifacts include `slurm-job.txt`, `rank-map.csv`, `nvidia-gpus.csv`, `ib-devices.csv`, and `nvidia-topo.txt`.
-
-See [`docs/COLLECTING_IDENTITY.md`](docs/COLLECTING_IDENTITY.md).
+See [`docs/M8_RESULTS_v0.2.md`](docs/M8_RESULTS_v0.2.md), [`docs/M8_V0_2_SOURCES.md`](docs/M8_V0_2_SOURCES.md), and [`docs/BENCHMARK_V0_2_PROTOCOL.md`](docs/BENCHMARK_V0_2_PROTOCOL.md).
 
 ## Evidence model
 
@@ -93,15 +71,17 @@ pcie_width @ pcie:0000:c1:00.0 = 16
 pcie_width @ pcie:0000:e1:00.0 = 8
 ```
 
-Facts are paired only on the same entity. If the affected workload path is known, unrelated device evidence is filtered before hypothesis evaluation.
+Facts are paired only on the same entity. Unrelated broken hardware is filtered out when the affected workload path is known.
 
-See [`docs/EVIDENCE_MODEL.md`](docs/EVIDENCE_MODEL.md).
+Completed diagnostics can contribute explicit negative results:
 
-## Cross-tool evidence adapters
-
-The PoC can combine DCGM findings, NVIDIA kernel events, PCIe/fabric facts, and host IRQ/CPU-affinity evidence while retaining raw provenance. Imported tool findings are evidence, not unquestioned root-cause verdicts.
-
-See [`docs/ADAPTERS.md`](docs/ADAPTERS.md) and [`docs/HOST_AFFINITY.md`](docs/HOST_AFFINITY.md).
+```text
+host IRQ hypothesis SUPPORTED
+  → collect IRQ affinity
+  → irq_affinity_clean = true
+  → hypothesis REJECTED
+  → collect_irq_affinity cannot be selected again
+```
 
 ## Try it
 
@@ -114,31 +94,28 @@ gputriage examples/m7_dcgm_xid_case
 gputriage examples/m7_irq_affinity_case
 ```
 
-Run the benchmark:
+Run the current frozen benchmark regression:
 
 ```bash
-gputriage-benchmark data/benchmark_dev_v0.1.json.gz
-
 gputriage-benchmark \
-  data/benchmark_holdout_v0.1.json.gz \
-  --freeze data/benchmark_holdout_v0.1.freeze.json
+  data/benchmark_holdout_v0.2.json.gz \
+  --freeze data/benchmark_holdout_v0.2.freeze.json \
+  --enforce-gates
 ```
 
 ## Design rules
 
 - missing evidence does not make a hypothesis more likely;
 - collected negative evidence is not treated as missing evidence;
-- completed diagnostics are not selected again unless a future explicit retest policy says so;
+- completed diagnostics are not selected again unless an explicit retest policy says so;
 - parsers/adapters extract facts, not causes;
 - multiple simultaneous causes are allowed;
-- conclusions remain traceable to evidence;
+- supported conclusions remain traceable to evidence;
 - ambiguous identity mappings are not guessed;
-- durable identifiers such as GPU UUID and PCI BDF are preferred over local indexes;
-- cheap/read-only diagnostics are preferred when they offer comparable information;
-- unsupported cases should abstain rather than manufacture a root cause;
+- unsupported cases abstain rather than manufacture a root cause;
 - vendor-tool verdicts are evidence, not automatic `confirmed` causes;
-- a diagnostic execution failure is not a component hardware failure;
-- benchmark holdouts are versioned and immutable after first evaluation.
+- diagnostic execution failure is not hardware failure;
+- frozen benchmark versions are immutable after first evaluation.
 
 ## Development
 
@@ -147,11 +124,13 @@ python -m pip install -e '.[dev]'
 pytest -q
 gputriage-eval data/staged_incidents_v0.1.json
 gputriage-eval data/holdout_incidents_v0.1.json
-gputriage-benchmark data/benchmark_dev_v0.1.json.gz --enforce-safety
+gputriage-benchmark data/benchmark_dev_v0.2.json.gz --enforce-safety
+gputriage-benchmark data/benchmark_holdout_v0.2.json.gz \
+  --freeze data/benchmark_holdout_v0.2.freeze.json --enforce-gates
 ```
 
-GitHub Actions runs the regression suites and M8 safety gate on Python 3.10 and 3.12.
+GitHub Actions runs regression suites and frozen benchmark checks on Python 3.10 and 3.12.
 
 ## Status
 
-Research / proof of concept. **M0-M7 and M8.1 are complete at PoC level; M8 v0.1 baseline remains recorded but did not pass the full gate. Next: construct and freeze a new independent M8.2 benchmark v0.2. M9 CLI alpha stays blocked until that gate passes.**
+Research / proof of concept. **M8.2 passed the predefined frozen engineering gate. M9 CLI alpha is the next milestone.**
