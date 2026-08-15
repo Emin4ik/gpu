@@ -1,0 +1,9 @@
+{
+  "symptom": "NCCL AllReduce throughput is 35% below baseline on ranks 16-23",
+  "observations": [
+    {"key": "communication_regression_localized", "value": true, "source": "nccl"},
+    {"key": "affected_ranks_share_pcie_path", "value": true, "source": "topology"},
+    {"key": "affected_ranks_share_hca", "value": true, "source": "topology"},
+    {"key": "gpu_health_clean", "value": true, "source": "dcgm"}
+  ]
+}

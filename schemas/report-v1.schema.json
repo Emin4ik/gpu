@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/gputriage/report-v1.schema.json",
+  "title": "GPU Triage Investigation Report v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "result_state",
+    "symptom",
+    "verdict",
+    "affected_entities",
+    "parsed_files",
+    "warnings",
+    "notes",
+    "hypotheses",
+    "next_best_test",
+    "observations"
+  ],
+  "properties": {
+    "schema_version": {"const": "gputriage.report.v1"},
+    "result_state": {"enum": ["confirmed", "needs_evidence", "abstain"]},
+    "symptom": {"type": "string"},
+    "verdict": {"type": ["string", "null"]},
+    "affected_entities": {"type": "array", "items": {"type": "string"}},
+    "parsed_files": {"type": "array", "items": {"type": "string"}},
+    "warnings": {"type": "array", "items": {"type": "string"}},
+    "notes": {"type": "array", "items": {"type": "string"}},
+    "hypotheses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "status", "supporting_evidence", "contradicting_evidence", "missing_evidence"],
+        "properties": {
+          "id": {"type": "string"},
+          "title": {"type": "string"},
+          "status": {"enum": ["possible", "supported", "probable", "confirmed", "rejected"]},
+          "supporting_evidence": {"type": "array", "items": {"type": "string"}},
+          "contradicting_evidence": {"type": "array", "items": {"type": "string"}},
+          "missing_evidence": {"type": "array", "items": {"type": "string"}}
+        },
+        "additionalProperties": false
+      }
+    },
+    "next_best_test": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "required": ["id", "title", "purpose", "command", "cost", "invasiveness", "duration_class", "discriminates_between", "expected_outcomes", "selection_score", "selection_reason", "alternatives"],
+          "properties": {
+            "id": {"type": "string"},
+            "title": {"type": "string"},
+            "purpose": {"type": "string"},
+            "command": {"type": ["string", "null"]},
+            "cost": {"type": "string"},
+            "invasiveness": {"type": "string"},
+            "duration_class": {"type": "string"},
+            "discriminates_between": {"type": "array", "items": {"type": "string"}},
+            "expected_outcomes": {"type": "array", "items": {"type": "string"}},
+            "selection_score": {"type": "integer"},
+            "selection_reason": {"type": ["string", "null"]},
+            "alternatives": {"type": "array", "items": {"type": "string"}}
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "observations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["key", "value", "source", "entity", "raw_ref"],
+        "properties": {
+          "key": {"type": "string"},
+          "value": {},
+          "source": {"type": "string"},
+          "entity": {"type": ["string", "null"]},
+          "raw_ref": {"type": ["string", "null"]}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

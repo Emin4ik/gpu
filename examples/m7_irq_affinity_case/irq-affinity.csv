@@ -1,0 +1,2 @@
+irq,cpu_list,effective_cpu_list,ibdev,netdev,pci_bdf
+120,0-3,2,mlx5_4,ens6f0,0000:d1:00.0

@@ -1,0 +1,2 @@
+           CPU0       CPU1       CPU2       CPU3
+ 120:          0          0       1523          0  PCI-MSI  mlx5_comp0

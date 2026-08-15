@@ -1,0 +1,2 @@
+LnkCap: Port #0, Speed 32GT/s, Width x16
+LnkSta: Speed 32GT/s, Width x8

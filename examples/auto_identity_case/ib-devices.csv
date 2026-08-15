@@ -1,0 +1,2 @@
+node,ibdev,netdev,pci_bdf,guid,port
+gpu001,mlx5_4,ens6f0,0000:d1:00.0,0x248a0001,1

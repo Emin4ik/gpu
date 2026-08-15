@@ -1,0 +1,76 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install -e '.[dev]'
+      - run: pytest -q
+      - run: gputriage-eval data/staged_incidents_v0.1.json
+      - run: gputriage-eval data/holdout_incidents_v0.1.json
+      - name: M8 v0.1 development benchmark safety
+        run: gputriage-benchmark data/benchmark_dev_v0.1.json.gz --enforce-safety
+      - name: M8 v0.1 frozen holdout safety
+        run: >-
+          gputriage-benchmark data/benchmark_holdout_v0.1.json.gz
+          --freeze data/benchmark_holdout_v0.1.freeze.json
+          --enforce-safety
+      - name: M8 v0.2 development benchmark safety
+        run: gputriage-benchmark data/benchmark_dev_v0.2.json.gz --enforce-safety
+      - name: M8 v0.2 frozen holdout gate
+        run: >-
+          gputriage-benchmark data/benchmark_holdout_v0.2.json.gz
+          --freeze data/benchmark_holdout_v0.2.freeze.json
+          --enforce-gates
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install build tooling
+        run: python -m pip install build twine
+      - name: Build wheel and sdist
+        run: python -m build
+      - name: Validate distribution metadata
+        run: python -m twine check dist/*
+      - name: Install built wheel in clean environment
+        run: |
+          python -m venv /tmp/gputriage-wheel
+          /tmp/gputriage-wheel/bin/python -m pip install --no-deps dist/*.whl
+          test "$(/tmp/gputriage-wheel/bin/gputriage --version)" = "gputriage 0.2.0a1"
+      - name: Smoke-test public sanitized example
+        run: |
+          set +e
+          /tmp/gputriage-wheel/bin/gputriage investigate examples/public-alpha/pcie-needs-evidence.json --format json > /tmp/gputriage-report.json
+          code=$?
+          set -e
+          test "$code" -eq 10
+          /tmp/gputriage-wheel/bin/python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path('/tmp/gputriage-report.json').read_text())
+          assert report['schema_version'] == 'gputriage.report.v1'
+          assert report['result_state'] == 'needs_evidence'
+          assert report['next_best_test']['id'] == 'collect_pcie_link_state'
+          PY
+      - name: Upload validated distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: gputriage-0.2.0a1-dist
+          path: dist/*
+          if-no-files-found: error

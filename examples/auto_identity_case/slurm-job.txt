@@ -1,0 +1,1 @@
+JobId=8841273 JobName=train JobState=RUNNING NumNodes=1 NodeList=gpu001

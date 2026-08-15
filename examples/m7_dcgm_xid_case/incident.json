@@ -1,0 +1,10 @@
+{
+  "symptom": "localized communication regression with NVIDIA driver errors",
+  "observations": [
+    {
+      "key": "communication_regression_localized",
+      "value": true,
+      "source": "operator"
+    }
+  ]
+}

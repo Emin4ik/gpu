@@ -1,0 +1,8 @@
+{
+  "symptom": "localized NCCL slowdown on ranks 16-17",
+  "affected_ranks": [16, 17],
+  "observations": [
+    {"key": "communication_regression_localized", "value": true, "source": "job-context"},
+    {"key": "gpu_health_clean", "value": true, "source": "job-context"}
+  ]
+}

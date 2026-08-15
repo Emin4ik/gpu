@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/gputriage/sanitized-bundle-v1.schema.json",
+  "title": "GPU Triage Sanitized Bundle v1",
+  "type": "object",
+  "required": ["schema_version", "symptom", "observations", "affected_entities", "sanitization"],
+  "properties": {
+    "schema_version": {"const": "gputriage.sanitized-bundle.v1"},
+    "symptom": {"type": "string"},
+    "observations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["key", "value", "source", "entity", "raw_ref"],
+        "properties": {
+          "key": {"type": "string"},
+          "value": {},
+          "source": {"type": "string"},
+          "entity": {"type": ["string", "null"]},
+          "raw_ref": {"type": "null"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "affected_entities": {"type": "array", "items": {"type": "string"}},
+    "sanitization": {
+      "type": "object",
+      "required": ["raw_artifacts_included", "raw_ref_removed", "identity_pseudonymization", "free_text_symptom_included", "warning"],
+      "properties": {
+        "raw_artifacts_included": {"const": false},
+        "raw_ref_removed": {"const": true},
+        "identity_pseudonymization": {"type": "string"},
+        "free_text_symptom_included": {"type": "boolean"},
+        "warning": {"type": "string"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

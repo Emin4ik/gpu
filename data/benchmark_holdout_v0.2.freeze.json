@@ -1,0 +1,7 @@
+{
+  "benchmark_version": "0.2",
+  "case_count": 12,
+  "frozen_at": "2026-08-15",
+  "rule": "do not edit or re-rubric this holdout after first run; create v0.3 instead",
+  "sha256": "3fba89e4f644630bf4dd4a6475af33e2215983d6ae59659980a1139bd21e32a0"
+}

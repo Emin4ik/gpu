@@ -1,0 +1,7 @@
+{
+  "symptom": "communication waits while GPU kernel durations match healthy peers",
+  "observations": [
+    {"key": "communication_waits", "value": true, "source": "workload-trace"},
+    {"key": "gpu_kernel_durations_match_peers", "value": true, "source": "workload-trace"}
+  ]
+}

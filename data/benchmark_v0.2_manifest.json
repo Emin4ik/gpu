@@ -1,0 +1,26 @@
+{
+  "benchmark_version": "0.2",
+  "development_cases": 12,
+  "frozen_holdout_cases": 12,
+  "holdout_sha256": "3fba89e4f644630bf4dd4a6475af33e2215983d6ae59659980a1139bd21e32a0",
+  "mutation_case_count": 8,
+  "source_case_count": 16,
+  "source_incidents": [
+    "nccl-1241",
+    "nccl-1317",
+    "nccl-1876",
+    "nccl-2167",
+    "nccl-290",
+    "nccl-634",
+    "nccl-875",
+    "nccl-tests-252",
+    "pytorch-109074",
+    "pytorch-158719",
+    "pytorch-163546",
+    "pytorch-175666",
+    "pytorch-24080",
+    "pytorch-38174",
+    "pytorch-53658",
+    "pytorch-68726"
+  ]
+}

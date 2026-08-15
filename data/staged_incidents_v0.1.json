@@ -1,0 +1,249 @@
+{
+  "version": "0.1",
+  "description": "Staged evidence corpus for blind replay. Later stages contain evidence that must not be visible when the planner chooses an earlier next test.",
+  "cases": [
+    {
+      "id": "ARGUS-02",
+      "source": "https://arxiv.org/abs/2606.20374",
+      "symptom": "Stable distributed-training throughput is materially below baseline and communication regression is localized to a rank group.",
+      "expected_final_hypothesis": "pcie_path_degradation",
+      "stages": [
+        {
+          "name": "T1-cheap-evidence",
+          "add_observations": [
+            {"key": "communication_regression_localized", "value": true, "source": "workload-trace"},
+            {"key": "affected_ranks_share_pcie_path", "value": true, "source": "topology"},
+            {"key": "affected_ranks_share_hca", "value": true, "source": "topology"},
+            {"key": "gpu_health_clean", "value": true, "source": "dcgm"}
+          ],
+          "expected_next_test": "collect_pcie_link_state",
+          "expected_statuses": {"pcie_path_degradation": "supported"}
+        },
+        {
+          "name": "T2-pcie-state",
+          "add_observations": [
+            {"key": "pcie_width", "value": 8, "source": "lspci"},
+            {"key": "pcie_expected_width", "value": 16, "source": "baseline"},
+            {"key": "fabric_counters_clean", "value": true, "source": "fabric-counters"}
+          ],
+          "expected_next_test": "targeted_nccl_validation",
+          "expected_statuses": {"pcie_path_degradation": "probable"}
+        },
+        {
+          "name": "T3-confirmation",
+          "add_observations": [
+            {"key": "targeted_nccl_validation_failed", "value": true, "source": "nccl-tests"}
+          ],
+          "allow_confirmed": true,
+          "expected_statuses": {"pcie_path_degradation": "confirmed"}
+        }
+      ]
+    },
+    {
+      "id": "NVIDIA-NET-01",
+      "source": "https://developer.nvidia.com/blog/next-generation-ai-factory-telemetry-with-nvidia-spectrum-x-ethernet/",
+      "symptom": "Long-running workload has irregular bandwidth drops localized to one network path.",
+      "expected_final_hypothesis": "fabric_link_degradation",
+      "stages": [
+        {
+          "name": "T1-cheap-evidence",
+          "add_observations": [
+            {"key": "communication_regression_localized", "value": true, "source": "workload"},
+            {"key": "affected_ranks_share_hca", "value": true, "source": "identity-map"},
+            {"key": "gpu_health_clean", "value": true, "source": "dcgm"},
+            {"key": "pcie_width", "value": 16, "source": "lspci"},
+            {"key": "pcie_expected_width", "value": 16, "source": "baseline"}
+          ],
+          "expected_next_test": "collect_fabric_counters",
+          "expected_statuses": {"fabric_link_degradation": "supported"}
+        },
+        {
+          "name": "T2-fabric-counters",
+          "add_observations": [
+            {"key": "fabric_error_counters_rising", "value": true, "source": "bluefield-or-hca"}
+          ],
+          "expected_next_test": "inspect_fabric_port",
+          "expected_statuses": {"fabric_link_degradation": "probable"}
+        },
+        {
+          "name": "T3-confirmation",
+          "add_observations": [
+            {"key": "faulty_fabric_port_confirmed", "value": true, "source": "switch-telemetry"}
+          ],
+          "allow_confirmed": true,
+          "expected_statuses": {"fabric_link_degradation": "confirmed"}
+        }
+      ]
+    },
+    {
+      "id": "SYSOM-01",
+      "source": "https://arxiv.org/abs/2603.29235",
+      "symptom": "One training rank computes slower while GPU utilization remains high.",
+      "expected_final_hypothesis": "gpu_thermal_frequency_degradation",
+      "stages": [
+        {
+          "name": "T1-peer-skew",
+          "add_observations": [
+            {"key": "compute_straggler_localized", "value": true, "source": "workload-trace"},
+            {"key": "gpu_utilization_high", "value": true, "source": "dcgm"},
+            {"key": "gpu_health_clean", "value": true, "source": "dcgm"}
+          ],
+          "expected_next_test": "collect_gpu_clock_thermal_state",
+          "expected_statuses": {"gpu_thermal_frequency_degradation": "supported"}
+        },
+        {
+          "name": "T2-clock-thermal",
+          "add_observations": [
+            {"key": "gpu_clock_below_peer", "value": true, "source": "nvidia-smi"},
+            {"key": "thermal_throttle_reason", "value": true, "source": "nvidia-smi"}
+          ],
+          "expected_next_test": "validate_thermal_recovery",
+          "expected_statuses": {"gpu_thermal_frequency_degradation": "probable"}
+        },
+        {
+          "name": "T3-confirmation",
+          "add_observations": [
+            {"key": "thermal_fix_restored_performance", "value": true, "source": "repair-validation"}
+          ],
+          "allow_confirmed": true,
+          "expected_statuses": {"gpu_thermal_frequency_degradation": "confirmed"}
+        }
+      ]
+    },
+    {
+      "id": "SYSOM-02",
+      "source": "https://arxiv.org/abs/2603.29235",
+      "symptom": "Collective waits grow while GPU kernel durations match healthy peers.",
+      "expected_final_hypothesis": "host_cpu_irq_interference",
+      "stages": [
+        {
+          "name": "T1-layer-elimination",
+          "add_observations": [
+            {"key": "communication_waits", "value": true, "source": "trace"},
+            {"key": "gpu_kernel_durations_match_peers", "value": true, "source": "trace"},
+            {"key": "gpu_health_clean", "value": true, "source": "dcgm"}
+          ],
+          "expected_next_test": "collect_irq_affinity",
+          "expected_statuses": {"host_cpu_irq_interference": "supported"}
+        },
+        {
+          "name": "T2-irq-affinity",
+          "add_observations": [
+            {"key": "irq_shares_nccl_cpu", "value": true, "source": "proc-interrupts"}
+          ],
+          "expected_next_test": "short_cpu_profile",
+          "expected_statuses": {"host_cpu_irq_interference": "probable"}
+        },
+        {
+          "name": "T3-confirmation",
+          "add_observations": [
+            {"key": "cpu_profile_confirms_softirq_preemption", "value": true, "source": "perf-ebpf"}
+          ],
+          "allow_confirmed": true,
+          "expected_statuses": {"host_cpu_irq_interference": "confirmed"}
+        }
+      ]
+    },
+    {
+      "id": "SYSOM-04",
+      "source": "https://arxiv.org/abs/2603.29235",
+      "symptom": "Cluster-wide throughput falls after an infrastructure change and all ranks slow similarly.",
+      "expected_final_hypothesis": "software_config_regression",
+      "stages": [
+        {
+          "name": "T1-change-correlation",
+          "add_observations": [
+            {"key": "regression_after_change", "value": true, "source": "change-log"},
+            {"key": "all_ranks_slow_uniformly", "value": true, "source": "workload"},
+            {"key": "gpu_health_clean", "value": true, "source": "dcgm"}
+          ],
+          "expected_next_test": "controlled_rollback_ab",
+          "expected_statuses": {"software_config_regression": "probable"}
+        },
+        {
+          "name": "T2-config-diff",
+          "add_observations": [
+            {"key": "config_diff_found", "value": true, "source": "baseline-diff"}
+          ],
+          "expected_next_test": "controlled_rollback_ab",
+          "expected_statuses": {"software_config_regression": "probable"}
+        },
+        {
+          "name": "T3-confirmation",
+          "add_observations": [
+            {"key": "rollback_restored_performance", "value": true, "source": "controlled-ab"}
+          ],
+          "allow_confirmed": true,
+          "expected_statuses": {"software_config_regression": "confirmed"}
+        }
+      ]
+    },
+    {
+      "id": "SYSOM-05",
+      "source": "https://arxiv.org/abs/2603.29235",
+      "symptom": "Training throughput drops while communication is healthy and GPUs wait for input.",
+      "expected_final_hypothesis": "storage_data_starvation",
+      "stages": [
+        {
+          "name": "T1-layer-elimination",
+          "add_observations": [
+            {"key": "gpu_wait_for_input", "value": true, "source": "trace"},
+            {"key": "communication_path_healthy", "value": true, "source": "nccl"},
+            {"key": "gpu_health_clean", "value": true, "source": "dcgm"}
+          ],
+          "expected_next_test": "collect_storage_client_profile",
+          "expected_statuses": {"storage_data_starvation": "supported"}
+        },
+        {
+          "name": "T2-host-profile",
+          "add_observations": [
+            {"key": "storage_client_cpu_elevated", "value": true, "source": "host-profile"}
+          ],
+          "expected_next_test": "controlled_data_path_ab",
+          "expected_statuses": {"storage_data_starvation": "probable"}
+        },
+        {
+          "name": "T3-confirmation",
+          "add_observations": [
+            {"key": "storage_or_loader_fix_restored_performance", "value": true, "source": "controlled-ab"}
+          ],
+          "allow_confirmed": true,
+          "expected_statuses": {"storage_data_starvation": "confirmed"}
+        }
+      ]
+    },
+    {
+      "id": "B300-03",
+      "source": "https://arxiv.org/abs/2608.05944",
+      "symptom": "Training hangs near epoch end and ranks are observed in different collective states.",
+      "expected_final_hypothesis": "collective_work_invariant_failure",
+      "stages": [
+        {
+          "name": "T1-rank-divergence",
+          "add_observations": [
+            {"key": "collective_hang", "value": true, "source": "flight-recorder"},
+            {"key": "ranks_in_different_collectives", "value": true, "source": "flight-recorder"}
+          ],
+          "expected_next_test": "compare_rank_work_invariants",
+          "expected_statuses": {"collective_work_invariant_failure": "supported"}
+        },
+        {
+          "name": "T2-work-counts",
+          "add_observations": [
+            {"key": "per_rank_work_counts_differ", "value": true, "source": "job-metadata"}
+          ],
+          "expected_next_test": "validate_invariant_fix",
+          "expected_statuses": {"collective_work_invariant_failure": "probable"}
+        },
+        {
+          "name": "T3-confirmation",
+          "add_observations": [
+            {"key": "invariant_fix_restored_training", "value": true, "source": "controlled-rerun"}
+          ],
+          "allow_confirmed": true,
+          "expected_statuses": {"collective_work_invariant_failure": "confirmed"}
+        }
+      ]
+    }
+  ]
+}

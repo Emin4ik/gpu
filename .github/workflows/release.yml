@@ -1,0 +1,68 @@
+name: public-alpha-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Pre-release tag; must match package version (for example v0.2.0a1)"
+        required: true
+        default: "v0.2.0a1"
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install verification tooling
+        run: python -m pip install -e '.[dev]' build twine
+      - name: Verify requested tag matches package version
+        env:
+          REQUESTED_TAG: ${{ inputs.tag }}
+        run: |
+          expected="v$(python -c 'import gputriage; print(gputriage.__version__)')"
+          test "$REQUESTED_TAG" = "$expected" || {
+            echo "requested tag $REQUESTED_TAG does not match package version $expected" >&2
+            exit 1
+          }
+      - name: Run regression suite
+        run: pytest -q
+      - name: Enforce frozen M8.2 benchmark gate
+        run: >-
+          gputriage-benchmark data/benchmark_holdout_v0.2.json.gz
+          --freeze data/benchmark_holdout_v0.2.freeze.json
+          --enforce-gates
+      - name: Build wheel and sdist
+        run: python -m build
+      - name: Validate distribution metadata
+        run: python -m twine check dist/*
+      - name: Clean-install built wheel
+        run: |
+          python -m venv /tmp/gputriage-release
+          /tmp/gputriage-release/bin/python -m pip install --no-deps dist/*.whl
+          test "$(/tmp/gputriage-release/bin/gputriage --version)" = "gputriage 0.2.0a1"
+      - name: Refuse to replace an existing release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_TAG: ${{ inputs.tag }}
+        run: |
+          if gh release view "$REQUESTED_TAG" >/dev/null 2>&1; then
+            echo "release $REQUESTED_TAG already exists; refusing to replace it" >&2
+            exit 1
+          fi
+      - name: Create GitHub pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_TAG: ${{ inputs.tag }}
+        run: >-
+          gh release create "$REQUESTED_TAG" dist/*
+          --prerelease
+          --generate-notes
+          --title "GPU Triage $REQUESTED_TAG"
+          --target "$GITHUB_SHA"

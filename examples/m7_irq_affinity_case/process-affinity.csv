@@ -1,0 +1,2 @@
+rank,pid,role,cpu_list,node
+0,4242,nccl_comm,2-3,gpu001

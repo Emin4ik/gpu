@@ -1,0 +1,25 @@
+{
+  "categories": [
+    {
+      "category": "Integration",
+      "tests": [
+        {
+          "name": "pcie",
+          "results": [
+            {
+              "entity_group": "GPU",
+              "entity_id": 0,
+              "status": "Fail",
+              "errors": [
+                {
+                  "code": "DCGM_FR_PCIE_REPLAY",
+                  "msg": "PCIe replay threshold exceeded"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
