@@ -1,0 +1,31 @@
+{
+  "schema_version": "gputriage.sanitized-bundle.v1",
+  "symptom": "sanitized incident",
+  "observations": [
+    {
+      "key": "communication_regression_localized",
+      "value": true,
+      "source": "public-example",
+      "entity": null,
+      "raw_ref": null
+    },
+    {
+      "key": "affected_ranks_share_pcie_path",
+      "value": true,
+      "source": "public-example",
+      "entity": "pcie:anon-1",
+      "raw_ref": null
+    }
+  ],
+  "affected_entities": [
+    "rank:anon-1",
+    "rank:anon-2"
+  ],
+  "sanitization": {
+    "raw_artifacts_included": false,
+    "raw_ref_removed": true,
+    "identity_pseudonymization": "deterministic within this example",
+    "free_text_symptom_included": false,
+    "warning": "Public synthetic example; sanitized exports still require manual review before sharing."
+  }
+}

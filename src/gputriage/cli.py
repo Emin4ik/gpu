@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
+from . import __version__
 from .bundle import BundleValidation, validate_bundle
 from .engine import investigate
 from .models import Observation
@@ -176,7 +177,11 @@ def _run_export_sanitized(
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Evidence-first AI/GPU infrastructure diagnostic planner")
+    parser = argparse.ArgumentParser(
+        prog="gputriage",
+        description="Evidence-first AI/GPU infrastructure diagnostic planner",
+    )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     investigate_parser = subparsers.add_parser("investigate", help="Investigate an incident bundle or legacy JSON file")
@@ -201,7 +206,7 @@ def _parser() -> argparse.ArgumentParser:
 
 def _normalize_legacy_argv(argv: Sequence[str]) -> list[str]:
     args = list(argv)
-    commands = {"investigate", "validate-bundle", "export-sanitized", "-h", "--help"}
+    commands = {"investigate", "validate-bundle", "export-sanitized", "-h", "--help", "--version"}
     if args and args[0] not in commands:
         return ["investigate", *args]
     return args

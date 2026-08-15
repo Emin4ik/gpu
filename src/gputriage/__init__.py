@@ -1,5 +1,7 @@
-"""GPU Triage proof-of-concept package."""
+"""GPU Triage public alpha package."""
 
 from .engine import investigate
 
-__all__ = ["investigate"]
+__version__ = "0.2.0a1"
+
+__all__ = ["__version__", "investigate"]
