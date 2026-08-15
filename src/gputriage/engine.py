@@ -45,6 +45,13 @@ def _pcie_hypothesis(facts: EvidenceIndex) -> Hypothesis:
     elif len(h.supporting_evidence) >= 2 and h.status == HypothesisStatus.POSSIBLE:
         h.status = HypothesisStatus.SUPPORTED
 
+    if h.status != HypothesisStatus.CONFIRMED and _truth(facts, "targeted_nccl_validation_healthy"):
+        h.contradicting_evidence.append("targeted NCCL validation is healthy on the suspected PCIe path")
+        if h.status in {HypothesisStatus.SUPPORTED, HypothesisStatus.PROBABLE}:
+            h.status = HypothesisStatus.REJECTED
+    elif not degraded and healthy and h.status == HypothesisStatus.SUPPORTED:
+        h.status = HypothesisStatus.POSSIBLE
+
     if h.status in {HypothesisStatus.SUPPORTED, HypothesisStatus.PROBABLE} and not pairs:
         h.missing_evidence.append("PCIe link width/speed for affected GPU/HCA path")
     return h
@@ -65,6 +72,17 @@ def _fabric_hypothesis(facts: EvidenceIndex) -> Hypothesis:
         h.status = HypothesisStatus.CONFIRMED
     elif len(h.supporting_evidence) >= 2 and h.status == HypothesisStatus.POSSIBLE:
         h.status = HypothesisStatus.SUPPORTED
+
+    if h.status != HypothesisStatus.CONFIRMED and _truth(facts, "fabric_path_validation_healthy"):
+        h.contradicting_evidence.append("targeted fabric-path validation is healthy")
+        if h.status in {HypothesisStatus.SUPPORTED, HypothesisStatus.PROBABLE}:
+            h.status = HypothesisStatus.REJECTED
+    elif _truth(facts, "fabric_port_clean") and h.status == HypothesisStatus.PROBABLE:
+        h.contradicting_evidence.append("mapped physical fabric port is clean")
+        h.status = HypothesisStatus.SUPPORTED
+    elif _truth(facts, "fabric_counters_clean") and not _truth(facts, "fabric_error_counters_rising") and h.status == HypothesisStatus.SUPPORTED:
+        h.status = HypothesisStatus.POSSIBLE
+
     if h.status in {HypothesisStatus.SUPPORTED, HypothesisStatus.PROBABLE} and not (
         _truth(facts, "fabric_error_counters_rising") or _truth(facts, "fabric_counters_clean")
     ):
@@ -98,7 +116,19 @@ def _thermal_hypothesis(facts: EvidenceIndex) -> Hypothesis:
         h.status = HypothesisStatus.SUPPORTED
     if _truth(facts, "thermal_fix_restored_performance") and h.status in {HypothesisStatus.SUPPORTED, HypothesisStatus.PROBABLE}:
         h.status = HypothesisStatus.CONFIRMED
-    if h.status == HypothesisStatus.SUPPORTED and not _truth(facts, "gpu_clock_below_peer"):
+
+    if h.status != HypothesisStatus.CONFIRMED and _truth(facts, "thermal_fix_did_not_restore_performance"):
+        h.contradicting_evidence.append("correcting the thermal condition did not restore performance")
+        if h.status in {HypothesisStatus.SUPPORTED, HypothesisStatus.PROBABLE}:
+            h.status = HypothesisStatus.REJECTED
+    elif _truth(facts, "gpu_clock_thermal_state_matches_peers"):
+        h.contradicting_evidence.append("GPU clock and thermal state match healthy peers")
+        if h.status == HypothesisStatus.SUPPORTED:
+            h.status = HypothesisStatus.POSSIBLE
+
+    if h.status == HypothesisStatus.SUPPORTED and not (
+        _truth(facts, "gpu_clock_below_peer") or _truth(facts, "gpu_clock_thermal_state_matches_peers")
+    ):
         h.missing_evidence.append("peer/baseline GPU clocks and thermal throttle reasons")
     return h
 
@@ -120,6 +150,11 @@ def _software_hypothesis(facts: EvidenceIndex) -> Hypothesis:
         h.status = HypothesisStatus.PROBABLE
     elif h.supporting_evidence:
         h.status = HypothesisStatus.SUPPORTED
+
+    if h.status != HypothesisStatus.CONFIRMED and _truth(facts, "rollback_did_not_restore_performance"):
+        h.contradicting_evidence.append("controlled rollback did not restore performance")
+        if h.status in {HypothesisStatus.SUPPORTED, HypothesisStatus.PROBABLE}:
+            h.status = HypothesisStatus.REJECTED
     return h
 
 
@@ -136,7 +171,19 @@ def _host_cpu_hypothesis(facts: EvidenceIndex) -> Hypothesis:
         h.status = HypothesisStatus.SUPPORTED
     if _truth(facts, "cpu_profile_confirms_softirq_preemption") and h.status == HypothesisStatus.PROBABLE:
         h.status = HypothesisStatus.CONFIRMED
-    if h.status == HypothesisStatus.SUPPORTED and not _truth(facts, "irq_shares_nccl_cpu"):
+
+    if h.status != HypothesisStatus.CONFIRMED and _truth(facts, "cpu_profile_no_softirq_preemption"):
+        h.contradicting_evidence.append("CPU/kernel profile does not show softirq preemption on the communication path")
+        if h.status in {HypothesisStatus.SUPPORTED, HypothesisStatus.PROBABLE}:
+            h.status = HypothesisStatus.REJECTED
+    elif _truth(facts, "irq_affinity_clean") and not _truth(facts, "irq_shares_nccl_cpu"):
+        h.contradicting_evidence.append("NIC IRQ affinity does not overlap the NCCL communication CPU")
+        if h.status in {HypothesisStatus.SUPPORTED, HypothesisStatus.PROBABLE}:
+            h.status = HypothesisStatus.REJECTED
+
+    if h.status == HypothesisStatus.SUPPORTED and not (
+        _truth(facts, "irq_shares_nccl_cpu") or _truth(facts, "irq_affinity_clean")
+    ):
         h.missing_evidence.append("IRQ/CPU affinity for NIC and NCCL communication thread")
     return h
 
@@ -154,7 +201,19 @@ def _storage_hypothesis(facts: EvidenceIndex) -> Hypothesis:
         h.status = HypothesisStatus.SUPPORTED
     if _truth(facts, "storage_or_loader_fix_restored_performance") and h.status == HypothesisStatus.PROBABLE:
         h.status = HypothesisStatus.CONFIRMED
-    if h.status == HypothesisStatus.SUPPORTED and not _truth(facts, "storage_client_cpu_elevated"):
+
+    if h.status != HypothesisStatus.CONFIRMED and _truth(facts, "data_path_ab_did_not_restore_performance"):
+        h.contradicting_evidence.append("controlled data-path correction did not restore performance")
+        if h.status in {HypothesisStatus.SUPPORTED, HypothesisStatus.PROBABLE}:
+            h.status = HypothesisStatus.REJECTED
+    elif _truth(facts, "storage_client_profile_healthy") and not _truth(facts, "storage_client_cpu_elevated"):
+        h.contradicting_evidence.append("storage/data-loader client profile is healthy")
+        if h.status == HypothesisStatus.SUPPORTED:
+            h.status = HypothesisStatus.POSSIBLE
+
+    if h.status == HypothesisStatus.SUPPORTED and not (
+        _truth(facts, "storage_client_cpu_elevated") or _truth(facts, "storage_client_profile_healthy")
+    ):
         h.missing_evidence.append("host data-loader/storage client profile and request shape")
     return h
 
@@ -172,7 +231,19 @@ def _collective_desync_hypothesis(facts: EvidenceIndex) -> Hypothesis:
         h.status = HypothesisStatus.SUPPORTED
     if _truth(facts, "invariant_fix_restored_training") and h.status == HypothesisStatus.PROBABLE:
         h.status = HypothesisStatus.CONFIRMED
-    if h.status == HypothesisStatus.SUPPORTED and not _truth(facts, "per_rank_work_counts_differ"):
+
+    if h.status != HypothesisStatus.CONFIRMED and _truth(facts, "invariant_fix_did_not_restore_training"):
+        h.contradicting_evidence.append("equalizing the work invariant did not restore the run")
+        if h.status in {HypothesisStatus.SUPPORTED, HypothesisStatus.PROBABLE}:
+            h.status = HypothesisStatus.REJECTED
+    elif _truth(facts, "per_rank_work_counts_equal") and not _truth(facts, "per_rank_work_counts_differ"):
+        h.contradicting_evidence.append("per-rank work counts are equal")
+        if h.status in {HypothesisStatus.SUPPORTED, HypothesisStatus.PROBABLE}:
+            h.status = HypothesisStatus.REJECTED
+
+    if h.status == HypothesisStatus.SUPPORTED and not (
+        _truth(facts, "per_rank_work_counts_differ") or _truth(facts, "per_rank_work_counts_equal")
+    ):
         h.missing_evidence.append("per-rank work/step counts and collective sequence invariants")
     return h
 
